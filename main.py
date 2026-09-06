@@ -1,5 +1,4 @@
-from keep_alive import keep_alive
-keep_alive() logging
+import logging
 import sqlite3
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -17,8 +16,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is alive!")
 
 def run_dummy_server():
-    server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
-    server.serve_forever()
+    try:
+        server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
+        server.serve_forever()
+    except Exception as e:
+        print(f"Server error: {e}")
 
 # Logging Setup
 logging.basicConfig(level=logging.INFO)
@@ -306,7 +308,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔄 P2P USDT Buy & Sell service coming soon!")
 
 def main():
-    # Start Dummy Web Server Thread
+    # Start Web Server Thread for Render
     threading.Thread(target=run_dummy_server, daemon=True).start()
     
     init_db()
