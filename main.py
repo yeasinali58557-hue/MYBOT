@@ -31,11 +31,10 @@ DB_FILE = "bot_data.db"
 WAITING_AMOUNT, WAITING_DEP_PROOF = 1, 2
 ADD_PROXY_NAME, ADD_PROXY_PRICE, ADD_PROXY_ITEMS = 3, 4, 5
 ADD_VPN_NAME, ADD_VPN_DAYS, ADD_VPN_PRICE = 6, 7, 8
-P2P_SELL_NUMBER, WAITING_P2P_CONFIRM, P2P_SELL_PROOF = 9, 10, 11
-VPN_QTY_CUSTOM, ADMIN_VPN_DELIVER = 12, 13
-SET_BKASH, SET_NAGAD, SET_BINANCE, SET_BEP20, SET_TRC20 = 14, 15, 16, 17, 18
-
-MENU_BUTTONS = ["🛡️ BUY VPN", "🌐 BUY PROXY", "🔄 P2P (USDT BUY & SELL)", "💳 DEPOSIT", "💰 BALANCE", "👑 ADMIN PANEL"]
+P2P_SELL_NUMBER, P2P_SELL_PROOF = 9, 10
+VPN_QTY_CUSTOM, ADMIN_VPN_DELIVER = 11, 12
+SET_BKASH, SET_NAGAD, SET_BINANCE, SET_BEP20, SET_TRC20 = 13, 14, 15, 16, 17
+BROADCAST_MSG = 18
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -125,7 +124,7 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
     await handle_buttons(update, context)
     return ConversationHandler.END
 
-# --- ADMIN PANEL ---
+# --- ADMIN PANEL & BROADCAST ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return ConversationHandler.END
@@ -136,20 +135,49 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     proxy_stock = cursor.fetchone()[0]
     cursor.execute('SELECT COUNT(*) FROM sales_history WHERE item_type = "PROXY"')
     proxy_sold = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM users')
+    total_users = cursor.fetchone()[0]
     conn.close()
 
     kb = [
-        [InlineKeyboardButton("📥 DEPOSIT REQUESTS", callback_data="admin_deposit_req"), InlineKeyboardButton("🚨 USDT SELL REQUESTS", callback_data="admin_p2p_req")],
+        [InlineKeyboardButton("📢 BROADCAST MESSAGE", callback_data="admin_broadcast")],
         [InlineKeyboardButton("➕ MANAGE VPN STOCK", callback_data="admin_manage_vpn"), InlineKeyboardButton("➕ MANAGE PROXY STOCK", callback_data="admin_manage_proxy")],
         [InlineKeyboardButton("⚙️ SETTINGS (ADDRESS & NUMBERS)", callback_data="admin_settings")]
     ]
-    admin_text = f"👑 ADMIN DASHBOARD\n\n🌐 PROXY STOCK: {proxy_stock} PCS\n🛒 PROXY SOLD: {proxy_sold} PCS"
+    admin_text = f"👑 ADMIN DASHBOARD\n\n👥 TOTAL USERS: {total_users}\n🌐 PROXY STOCK: {proxy_stock} PCS\n🛒 PROXY SOLD: {proxy_sold} PCS"
     
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(admin_text, reply_markup=InlineKeyboardMarkup(kb))
     else:
         await update.message.reply_text(admin_text, reply_markup=InlineKeyboardMarkup(kb))
+    return ConversationHandler.END
+
+async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("📢 WRITE THE MESSAGE YOU WANT TO SEND TO ALL USERS:")
+    return BROADCAST_MSG
+
+async def broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg_text = update.message.text
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id FROM users')
+    users = cursor.fetchall()
+    conn.close()
+
+    success, fail = 0, 0
+    await update.message.reply_text("⏳ SENDING BROADCAST MESSAGE...")
+
+    for (uid,) in users:
+        try:
+            await context.bot.send_message(uid, f"📢 ANNOUNCEMENT FROM ADMIN:\n\n{msg_text}")
+            success += 1
+        except Exception:
+            fail += 1
+
+    await update.message.reply_text(f"✅ BROADCAST COMPLETED!\n\nSUCCESS: {success}\nFAILED: {fail}", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
 # --- SETTINGS MENU ---
@@ -273,28 +301,6 @@ async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE)
     kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
     
     await query.edit_message_text("⚙️ PROXY STOCK MANAGEMENT PANEL:", reply_markup=InlineKeyboardMarkup(kb))
-
-async def handle_stock_days_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    item_name = query.data.split("_")[-1].upper()
-    
-    kb = [
-        [InlineKeyboardButton("📅 3 DAYS", callback_data=f"setday_3_{item_name}"), InlineKeyboardButton("📅 7 DAYS", callback_data=f"setday_7_{item_name}")],
-        [InlineKeyboardButton("📅 14 DAYS", callback_data=f"setday_14_{item_name}"), InlineKeyboardButton("📅 30 DAYS", callback_data=f"setday_30_{item_name}")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="admin_manage_vpn")]
-    ]
-    await query.edit_message_text(f"📅 SELECT DURATION FOR {item_name}:", reply_markup=InlineKeyboardMarkup(kb))
-
-async def admin_deposit_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("📥 DEPOSIT REQUESTS PANEL:\n\nNO PENDING REQUESTS.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")]]))
-
-async def admin_p2p_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("🚨 USDT SELL REQUESTS PANEL:\n\nNO PENDING REQUESTS.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")]]))
 
 # --- DEPOSIT SYSTEM ---
 async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -619,7 +625,7 @@ async def add_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ INVALID PRICE!")
         return ADD_VPN_PRICE
 
-# --- P2P HANDLERS ---
+# --- P2P HANDLERS (FIXED) ---
 async def show_p2p_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🔄 P2P USDT TRADING ZONE\n\n📢 BUY USDT: 1 $ = 130 ৳\n📢 SELL USDT: 1 $ = 122 ৳"
     kb = [
@@ -659,9 +665,9 @@ async def p2p_net_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['p2p_net'] = net
     
     msg = f"📥 SEND USDT TO THIS ADDRESS\n\n🌐 NETWORK: {net}\n🔑 ADDRESS: `{addr}`\n\nCLICK CONFIRM PAYMENT AFTER SENDING."
-    kb = [[InlineKeyboardButton("✅ CONFIRM PAYMENT", callback_data="p2p_confirm")]]
+    kb = [[InlineKeyboardButton("✅ CONFIRM PAYMENT", callback_data="p2p_confirm_btn")]]
     await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-    return WAITING_P2P_CONFIRM
+    return P2P_SELL_PROOF
 
 async def p2p_confirm_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -672,9 +678,9 @@ async def p2p_confirm_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def p2p_proof_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1].file_id
-    method = context.user_data.get('p2p_method')
-    number = context.user_data.get('p2p_number')
-    net = context.user_data.get('p2p_net')
+    method = context.user_data.get('p2p_method', 'N/A')
+    number = context.user_data.get('p2p_number', 'N/A')
+    net = context.user_data.get('p2p_net', 'N/A')
     
     await update.message.reply_text("⏳ P2P REQUEST SUBMITTED TO ADMIN!", reply_markup=get_main_keyboard(user.id))
     admin_msg = f"🚨 NEW P2P SELL REQUEST\n\n👤 USER: {user.full_name.upper()} (`{user.id}`)\n💳 PAYMENT METHOD: {method}\n📞 RECEIVE NUMBER: `{number}`\n🌐 NETWORK: {net}"
@@ -763,9 +769,19 @@ def main():
         ],
         states={
             P2P_SELL_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, p2p_number_rec)],
-            WAITING_P2P_CONFIRM: [CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm$")],
-            P2P_SELL_PROOF: [MessageHandler(filters.PHOTO, p2p_proof_rec)]
+            P2P_SELL_PROOF: [
+                CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"),
+                MessageHandler(filters.PHOTO, p2p_proof_rec)
+            ]
         },
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
+    )
+
+    broadcast_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(broadcast_start, pattern="^admin_broadcast$")],
+        states={BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_send)]},
         fallbacks=fallback_buttons + [CommandHandler("start", start)],
         per_message=False,
         allow_reentry=True
@@ -801,16 +817,14 @@ def main():
     app.add_handler(add_prx_conv)
     app.add_handler(add_vpn_conv)
     app.add_handler(p2p_conv)
+    app.add_handler(broadcast_conv)
     app.add_handler(settings_conv)
     
     # CALLBACKS
     app.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel_back$"))
     app.add_handler(CallbackQueryHandler(admin_settings_menu, pattern="^admin_settings$"))
-    app.add_handler(CallbackQueryHandler(admin_deposit_requests, pattern="^admin_deposit_req$"))
-    app.add_handler(CallbackQueryHandler(admin_p2p_requests, pattern="^admin_p2p_req$"))
     app.add_handler(CallbackQueryHandler(manage_vpn_stock, pattern="^admin_manage_vpn$"))
     app.add_handler(CallbackQueryHandler(manage_proxy_stock, pattern="^admin_manage_proxy$"))
-    app.add_handler(CallbackQueryHandler(handle_stock_days_select, pattern="^days_"))
     
     app.add_handler(CallbackQueryHandler(dep_approval_handler, pattern="^depapp_"))
     app.add_handler(CallbackQueryHandler(show_proxy_store, pattern="^buy_proxy$"))
@@ -819,6 +833,7 @@ def main():
     app.add_handler(CallbackQueryHandler(vpn_pack_selected, pattern="^vpnpack_"))
     app.add_handler(CallbackQueryHandler(p2p_sell_start, pattern="^p2p_sell$"))
     app.add_handler(CallbackQueryHandler(p2p_net_rec, pattern="^p2pnet_"))
+    app.add_handler(CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
