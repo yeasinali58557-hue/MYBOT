@@ -8,12 +8,12 @@ from telegram.ext import (
     MessageHandler, ContextTypes, ConversationHandler, filters
 )
 
-# --- DUMMY WEB SERVER FOR RENDER ---
+# --- DUMMY SERVER FOR CLOUD HOSTING ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"BOT IS RUNNING SUCCESSFULLY!")
+        self.wfile.write(b"BOT IS ALIVE!")
 
 def run_dummy_server():
     try:
@@ -22,15 +22,13 @@ def run_dummy_server():
     except Exception as e:
         print(f"SERVER ERROR: {e}")
 
-# LOGGING SETUP
 logging.basicConfig(level=logging.INFO)
 
-# CONFIGS - TOKEN & ADMIN ID
+# CONFIGS
 TOKEN = "8733585059:AAE3XL0aHVQ2gdw3BAm6RKkMSZeDXq8pe6g"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
 
-# PAYMENT DETAILS
 BKASH_NUMBER = "01869425239"
 NAGAD_NUMBER = "01869425239"
 BINANCE_ID = "7753794493"
@@ -39,9 +37,11 @@ TRC20_ADDRESS = "TYz1234567890abcdef1234567890abcdef"
 
 # CONVERSATION STATES
 WAITING_AMOUNT, WAITING_TRXID = 1, 2
-ADD_STOCK_NAME, ADD_STOCK_PRICE, ADD_STOCK_ITEMS = 3, 4, 5
-BROADCAST_MSG = 6
-P2P_SELL_NUMBER, P2P_SELL_PROOF = 7, 8
+ADD_PROXY_NAME, ADD_PROXY_PRICE, ADD_PROXY_ITEMS = 3, 4, 5
+ADD_VPN_NAME, ADD_VPN_DAYS, ADD_VPN_PRICE = 6, 7, 8
+BROADCAST_MSG = 9
+P2P_SELL_NUMBER, P2P_SELL_PROOF = 10, 11
+VPN_QTY_CUSTOM, ADMIN_VPN_DELIVER = 12, 13
 
 MENU_BUTTONS = ["🛡️ BUY VPN", "🌐 BUY PROXY", "🔄 P2P(USDT BUY & SELL)", "💳 DEPOSIT", "💰 BALANCE", "👑 ADMIN PANEL"]
 
@@ -49,31 +49,11 @@ MENU_BUTTONS = ["🛡️ BUY VPN", "🌐 BUY PROXY", "🔄 P2P(USDT BUY & SELL)"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            balance REAL DEFAULT 0.0
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category TEXT,
-            name TEXT,
-            price REAL,
-            item_data TEXT
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS deposits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            method TEXT,
-            amount REAL,
-            trxid TEXT,
-            status TEXT DEFAULT 'PENDING'
-        )
-    ''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance REAL DEFAULT 0.0)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS proxy_products (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT, price REAL, ip TEXT, port TEXT, username TEXT, password TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS vpn_products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, days INTEGER, price REAL)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS sales_history (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type TEXT, name TEXT, price REAL, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS deposits (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, method TEXT, amount REAL, trxid TEXT, status TEXT DEFAULT 'PENDING')''')
     conn.commit()
     conn.close()
 
@@ -100,14 +80,6 @@ def update_user_balance(user_id, amount):
     conn.close()
     return new_bal
 
-def get_all_users():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('SELECT user_id FROM users')
-    rows = cursor.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
-
 # --- KEYBOARDS ---
 def get_main_keyboard(user_id):
     kb = [
@@ -119,280 +91,132 @@ def get_main_keyboard(user_id):
         kb.append(["👑 ADMIN PANEL"])
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-# --- START & MENU ---
+# --- START ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     get_user_balance(user.id)
-    
-    welcome_msg = (
-        f"👋 **HELLO {user.first_name.upper()}!**\n\n"
-        f"🆔 **USER ID:** `{user.id}`\n"
-        f"💰 **BALANCE:** `{get_user_balance(user.id)} BDT`\n\n"
-        f"SELECT AN OPTION FROM BELOW TO CONTINUE:"
-    )
-    await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+    msg = f"👋 **WELCOME {user.first_name.upper()}!**\n\n🆔 **ID:** `{user.id}`\n💰 **BALANCE:** `{get_user_balance(user.id)} BDT`"
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
     return ConversationHandler.END
 
 # --- ADMIN PANEL ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ YOU ARE NOT AUTHORIZED!")
         return ConversationHandler.END
-    
-    keyboard = [
-        [InlineKeyboardButton("➕ ADD PROXY STOCK", callback_data="admin_add_PROXY"), InlineKeyboardButton("➕ ADD VPN STOCK", callback_data="admin_add_VPN")],
-        [InlineKeyboardButton("📥 DEPOSIT REQUESTS", callback_data="admin_view_deposits")],
-        [InlineKeyboardButton("📢 BROADCAST NOTICE", callback_data="admin_broadcast")]
-    ]
-    await update.message.reply_text("👑 **ADMIN PANEL**\nCHOOSE AN ACTION:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return ConversationHandler.END
-
-async def addbal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    try:
-        target_id = int(context.args[0])
-        amount = float(context.args[1])
-        new_bal = update_user_balance(target_id, amount)
-        await update.message.reply_text(f"✅ BALANCE UPDATED! USER `{target_id}` NEW BALANCE: `{new_bal} BDT`", parse_mode="Markdown")
-        try:
-            await context.bot.send_message(
-                chat_id=target_id,
-                text=f"🎉 **DEPOSIT ADDED!**\n\n`{amount} BDT` ADDED BY ADMIN.\nNEW BALANCE: `{new_bal} BDT`",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-    except Exception:
-        await update.message.reply_text("❌ USAGE: `/addbal USER_ID AMOUNT`", parse_mode="Markdown")
-
-# --- ADMIN APPROVAL HANDLERS ---
-async def handle_deposit_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data.split("_")
-    action = data[1] # app or rej
-    target_user_id = int(data[2])
-    amount = float(data[3])
-    
-    if action == "app":
-        new_bal = update_user_balance(target_user_id, amount)
-        await query.edit_message_caption(caption=f"{query.message.caption or query.message.text}\n\n✅ **APPROVED BY ADMIN**", parse_mode="Markdown") if query.message.photo else await query.edit_message_text(f"{query.message.text}\n\n✅ **APPROVED BY ADMIN**", parse_mode="Markdown")
-        try:
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"🎉 **DEPOSIT APPROVED!**\n\nYOUR DEPOSIT OF `{amount} BDT` HAS BEEN APPROVED.\nCURRENT BALANCE: `{new_bal} BDT`",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-    elif action == "rej":
-        await query.edit_message_text(f"{query.message.text}\n\n❌ **REJECTED BY ADMIN**", parse_mode="Markdown")
-        try:
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"❌ **DEPOSIT REJECTED!**\n\nYOUR DEPOSIT OF `{amount} BDT` WAS REJECTED BY ADMIN.",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-
-# --- ADMIN STOCK ADDITION FLOW ---
-async def start_add_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    cat = query.data.split("_")[2]
-    context.user_data['stock_cat'] = cat
-    await query.edit_message_text(f"📦 ENTER PRODUCT NAME FOR **{cat}** (E.G. `9PROXY PREMIUM`):", parse_mode="Markdown")
-    return ADD_STOCK_NAME
-
-async def stock_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS:
-        await handle_buttons(update, context)
-        return ConversationHandler.END
-    context.user_data['stock_name'] = update.message.text.strip().upper()
-    await update.message.reply_text("💵 ENTER PRICE PER UNIT (BDT) (E.G. `120`):")
-    return ADD_STOCK_PRICE
-
-async def stock_price_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS:
-        await handle_buttons(update, context)
-        return ConversationHandler.END
-    try:
-        price = float(update.message.text.strip())
-        context.user_data['stock_price'] = price
-        await update.message.reply_text(
-            "📝 SEND STOCK ITEMS **LINE BY LINE** (EACH LINE = 1 UNIT STOCK).\n\n"
-            "EXAMPLE:\n`USER1:PASS1:IP1`\n`USER2:PASS2:IP2`"
-        )
-        return ADD_STOCK_ITEMS
-    except ValueError:
-        await update.message.reply_text("❌ INVALID PRICE! ENTER A VALID NUMBER:")
-        return ADD_STOCK_PRICE
-
-async def stock_items_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS:
-        await handle_buttons(update, context)
-        return ConversationHandler.END
-    items = [line.strip() for line in update.message.text.strip().split('\n') if line.strip()]
-    cat = context.user_data.get('stock_cat')
-    name = context.user_data.get('stock_name')
-    price = context.user_data.get('stock_price')
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    for item in items:
-        cursor.execute('INSERT INTO products (category, name, price, item_data) VALUES (?, ?, ?, ?)', (cat, name, price, item))
-    conn.commit()
+    cursor.execute('SELECT COUNT(*) FROM proxy_products')
+    proxy_stock = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM sales_history WHERE item_type = "PROXY"')
+    proxy_sold = cursor.fetchone()[0]
     conn.close()
-    
-    await update.message.reply_text(f"✅ SUCCESSFULLY ADDED **{len(items)}** ITEMS TO **{name}** ({cat}) STOCK!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
-    return ConversationHandler.END
 
-# --- ADMIN BROADCAST FLOW ---
-async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("📢 SEND THE MESSAGE YOU WANT TO BROADCAST TO ALL USERS:")
-    return BROADCAST_MSG
-
-async def send_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS:
-        await handle_buttons(update, context)
-        return ConversationHandler.END
-    msg = update.message.text.upper()
-    users = get_all_users()
-    count = 0
-    for uid in users:
-        try:
-            await context.bot.send_message(chat_id=uid, text=f"📢 **ANNOUNCEMENT**\n\n{msg}", parse_mode="Markdown")
-            count += 1
-        except Exception:
-            pass
-    await update.message.reply_text(f"✅ NOTICE SUCCESSFULLY SENT TO **{count}** USERS!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
-    return ConversationHandler.END
-
-# --- DEPOSIT FLOW ---
-async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("💗 BKASH", callback_data="method_BKASH")],
-        [InlineKeyboardButton("🧡 NAGAD", callback_data="method_NAGAD")],
-        [InlineKeyboardButton("🟡 BINANCE", callback_data="method_BINANCE")]
+    kb = [
+        [InlineKeyboardButton("➕ ADD PROXY STOCK", callback_data="admin_add_proxy"), InlineKeyboardButton("➕ ADD VPN PACK", callback_data="admin_add_vpn")],
+        [InlineKeyboardButton("📢 BROADCAST", callback_data="admin_broadcast")]
     ]
-    await update.message.reply_text(
-        "⚡ **SELECT PAYMENT METHOD** ⚡", 
-        parse_mode="Markdown", 
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    admin_text = f"👑 **ADMIN DASHBOARD**\n\n🌐 **PROXY STOCK:** {proxy_stock} Pcs\n🛒 **PROXY SOLD:** {proxy_sold} Pcs"
+    await update.message.reply_text(admin_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    return ConversationHandler.END
 
-async def method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- DEPOSIT SYSTEM ---
+async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kb = [
+        [InlineKeyboardButton("💗 BKASH", callback_data="dep_BKASH")],
+        [InlineKeyboardButton("🧡 NAGAD", callback_data="dep_NAGAD")],
+        [InlineKeyboardButton("🟡 BINANCE", callback_data="dep_BINANCE")]
+    ]
+    await update.message.reply_text("💳 **SELECT PAYMENT METHOD:**", reply_markup=InlineKeyboardMarkup(kb))
+
+async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     method = query.data.split("_")[1]
-    context.user_data['deposit_method'] = method
+    context.user_data['dep_method'] = method
     
-    number = BKASH_NUMBER if method == "BKASH" else NAGAD_NUMBER if method == "NAGAD" else BINANCE_ID
-    label_num = "NUMBER" if method != "BINANCE" else "ID"
-    
-    text = (
-        f"✅ **METHOD: {method}**\n"
-        f"📞 **{label_num}: `{number}`**\n\n"
-        f"💳 **ENTER DEPOSIT AMOUNT (BDT):**"
-    )
-    await query.edit_message_text(text, parse_mode="Markdown")
+    num = BKASH_NUMBER if method == "BKASH" else NAGAD_NUMBER if method == "NAGAD" else BINANCE_ID
+    await query.edit_message_text(f"✅ **METHOD: {method}**\n📞 **SEND TO ({'ID' if method=='BINANCE' else 'NUMBER'}):** `{num}`\n\n💳 **ENTER DEPOSIT AMOUNT (BDT):**", parse_mode="Markdown")
     return WAITING_AMOUNT
 
-async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text in MENU_BUTTONS:
-        await handle_buttons(update, context)
-        return ConversationHandler.END
-        
+async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     try:
-        amount = float(text)
-        if amount <= 0:
-            await update.message.reply_text("❌ INVALID AMOUNT! PLEASE ENTER A VALID NUMBER:")
-            return WAITING_AMOUNT
-            
-        context.user_data['deposit_amount'] = amount
-        method = context.user_data.get('deposit_method', 'BKASH')
-        number = BKASH_NUMBER if method == "BKASH" else NAGAD_NUMBER if method == "NAGAD" else BINANCE_ID
+        amount = float(update.message.text.strip())
+        method = context.user_data.get('dep_method')
+        context.user_data['dep_amount'] = amount
         
-        msg = (
-            f"📥 **DEPOSIT DETAILS**\n\n"
-            f"• **METHOD:** {method}\n"
-            f"• **AMOUNT:** {amount} BDT\n"
-            f"• **SEND TO:** `{number}`\n\n"
-            f"AFTER PAYMENT, CLICK **PAYMENT DONE** BELOW:"
-        )
-        keyboard = [[InlineKeyboardButton("✅ PAYMENT DONE", callback_data="payment_done")]]
-        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        warn_text = ""
+        if method == "BINANCE":
+            usdt_amt = amount / 125.0
+            warn_text = f"\n\n⚠️ **WARNING:** Please send exactly **{usdt_amt:.2f} USDT** (Rate: 125 BDT = 1$)"
+
+        num = BKASH_NUMBER if method == "BKASH" else NAGAD_NUMBER if method == "NAGAD" else BINANCE_ID
+        text = f"📥 **DEPOSIT SUMMARY**\n\n• **METHOD:** {method}\n• **AMOUNT:** {amount} BDT\n• **ADDRESS/NO:** `{num}`{warn_text}\n\nClick **PAYMENT DONE** after sending."
+        kb = [[InlineKeyboardButton("✅ PAYMENT DONE", callback_data="dep_done")]]
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         return WAITING_TRXID
     except ValueError:
-        await update.message.reply_text("❌ PLEASE ENTER A VALID NUMBER FOR AMOUNT:")
+        await update.message.reply_text("❌ ENTER A VALID NUMBER!")
         return WAITING_AMOUNT
 
-async def payment_done_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def dep_done_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("⚙️ **SEND PAYMENT TRANSACTION ID (TRXID):**", parse_mode="Markdown")
+    await query.edit_message_text("⚙️ **SEND PAYMENT TRANSACTION ID (TrxID):**", parse_mode="Markdown")
     return WAITING_TRXID
 
-async def trxid_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def dep_trx_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     trx_id = update.message.text.strip()
-    if trx_id in MENU_BUTTONS:
-        await handle_buttons(update, context)
-        return ConversationHandler.END
-        
     user = update.effective_user
-    method = context.user_data.get('deposit_method', 'N/A')
-    amount = context.user_data.get('deposit_amount', 0.0)
+    method = context.user_data.get('dep_method')
+    amount = context.user_data.get('dep_amount')
     
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO deposits (user_id, method, amount, trxid) VALUES (?, ?, ?, ?)', (user.id, method, amount, trx_id))
-    conn.commit()
-    conn.close()
-    
-    await update.message.reply_text("⏳ **DEPOSIT REQUEST SUBMITTED!**\nADMIN WILL VERIFY SHORTLY.", parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
-    
-    admin_notify = (
-        f"📥 **NEW DEPOSIT REQUEST**\n━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **USER:** {user.full_name.upper()} (`{user.id}`)\n"
-        f"💳 **METHOD:** {method}\n💰 **AMOUNT:** `{amount} BDT`\n🔑 **TRXID:** `{trx_id}`\n━━━━━━━━━━━━━━━━━━"
-    )
-    admin_kb = [[InlineKeyboardButton("✅ APPROVE", callback_data=f"dep_app_{user.id}_{amount}"), InlineKeyboardButton("❌ REJECT", callback_data=f"dep_rej_{user.id}_{amount}")]]
-    await context.bot.send_message(chat_id=ADMIN_ID, text=admin_notify, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(admin_kb))
+    await update.message.reply_text("⏳ **DEPOSIT SUBMITTED FOR APPROVAL!**", reply_markup=get_main_keyboard(user.id))
+    admin_kb = [[InlineKeyboardButton("✅ APPROVE", callback_data=f"depapp_app_{user.id}_{amount}"), InlineKeyboardButton("❌ REJECT", callback_data=f"depapp_rej_{user.id}_{amount}")]]
+    await context.bot.send_message(ADMIN_ID, f"📥 **NEW DEPOSIT**\nUser: {user.full_name} (`{user.id}`)\nMethod: {method}\nAmount: {amount} BDT\nTrxID: `{trx_id}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(admin_kb))
     return ConversationHandler.END
 
-# --- BUY STORE (PROXY & VPN) ---
-async def show_store(update: Update, context: ContextTypes.DEFAULT_TYPE, category):
+async def dep_approval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, act, uid, amt = query.data.split("_")
+    uid, amt = int(uid), float(amt)
+    if act == "app":
+        new_bal = update_user_balance(uid, amt)
+        await query.edit_message_text(f"{query.message.text}\n\n✅ **APPROVED**")
+        await context.bot.send_message(uid, f"🎉 **DEPOSIT APPROVED!**\nAdded: `{amt} BDT`\nBalance: `{new_bal} BDT`", parse_mode="Markdown")
+    else:
+        await query.edit_message_text(f"{query.message.text}\n\n❌ **REJECTED**")
+        await context.bot.send_message(uid, "❌ **DEPOSIT REJECTED!**")
+
+# --- PROXY PURCHASE & AUTO-DELIVERY ---
+async def show_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('SELECT DISTINCT name, price FROM products WHERE category = ?', (category,))
-    prods = cursor.fetchall()
+    cursor.execute('SELECT category, price, COUNT(*) FROM proxy_products GROUP BY category')
+    items = cursor.fetchall()
     conn.close()
     
-    if not prods:
-        await update.message.reply_text(f"❌ CURRENTLY NO **{category}** STOCK AVAILABLE!", parse_mode="Markdown")
+    if not items:
+        await update.message.reply_text("❌ NO PROXY STOCK AVAILABLE!")
         return
         
     kb = []
-    for name, price in prods:
-        kb.append([InlineKeyboardButton(f"{name} - {price} BDT", callback_data=f"buy_p_{category}_{name}")])
-    
-    await update.message.reply_text(f"🛒 **AVAILABLE {category} STORE**\nSELECT PRODUCT TO PURCHASE:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    for cat, price, count in items:
+        kb.append([InlineKeyboardButton(f"{cat} - {price} BDT ({count} Pcs)", callback_data=f"buyprx_{cat}")])
+    await update.message.reply_text("🌐 **SELECT PROXY PACKAGE:**", reply_markup=InlineKeyboardMarkup(kb))
 
-async def process_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def buy_proxy_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    _, _, cat, name = query.data.split("_", 3)
+    cat = query.data.split("_")[1]
     user_id = query.from_user.id
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('SELECT id, price, item_data FROM products WHERE category = ? AND name = ? LIMIT 1', (cat, name))
+    cursor.execute('SELECT id, price, ip, port, username, password FROM proxy_products WHERE category = ? LIMIT 1', (cat,))
     row = cursor.fetchone()
     
     if not row:
@@ -400,210 +224,379 @@ async def process_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE
         conn.close()
         return
         
-    item_id, price, item_data = row
+    pid, price, ip, port, uname, pwd = row
     bal = get_user_balance(user_id)
-    
     if bal < price:
-        await query.edit_message_text(f"❌ **INSUFFICIENT BALANCE!**\nPRODUCT PRICE: `{price} BDT`\nYOUR BALANCE: `{bal} BDT`\nPLEASE DEPOSIT FIRST.", parse_mode="Markdown")
+        await query.edit_message_text(f"❌ **INSUFFICIENT BALANCE!**\nPrice: `{price} BDT`\nYour Balance: `{bal} BDT`", parse_mode="Markdown")
         conn.close()
         return
         
     update_user_balance(user_id, -price)
-    cursor.execute('DELETE FROM products WHERE id = ?', (item_id,))
+    cursor.execute('DELETE FROM proxy_products WHERE id = ?', (pid,))
+    cursor.execute('INSERT INTO sales_history (item_type, name, price) VALUES ("PROXY", ?, ?)', (cat, price))
     conn.commit()
     conn.close()
     
-    delivery_text = (
-        f"🎉 **PURCHASE SUCCESSFUL!**\n━━━━━━━━━━━━━━━━━━\n"
-        f"📦 **PRODUCT:** {name}\n"
-        f"💵 **PRICE:** `{price} BDT`\n"
-        f"🗝️ **DETAILS:**\n`{item_data}`\n━━━━━━━━━━━━━━━━━━\n"
-        f"THANK YOU FOR BUYING!"
+    deliv = (
+        f"✅ **ORDER COMPLETED** ✨\n\n"
+        f"📦 **Package:** Proxy ~ IP ➜ {cat}\n\n"
+        f"🌐 **YOUR PRODUCT:** ✨\n\n"
+        f"🌐 **IP:** `{ip}`\n"
+        f"⬆️ **Port:** `{port}`\n"
+        f"⭐ **User:** `{uname}`\n"
+        f"🔑 **Pass:** `{pwd}`\n\n"
+        f"THANK YOU FOR YOUR PURCHASE!"
     )
-    await query.edit_message_text(delivery_text, parse_mode="Markdown")
+    await query.edit_message_text(deliv, parse_mode="Markdown")
 
-# --- P2P SECTION ---
-async def show_p2p_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "🔄 **P2P USDT TRADING ZONE**\n━━━━━━━━━━━━━━━━━━\n"
-        "📢 **BUY USDT**\n1 $ = 130 ৳\n\n"
-        "📢 **SELL USDT**\n1 $ = 122 ৳\n━━━━━━━━━━━━━━━━━━"
-    )
+# --- VPN PURCHASE FLOW ---
+async def start_vpn_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
-        [InlineKeyboardButton("💵 BUY USDT (130৳)", callback_data="p2p_buy_info")],
-        [InlineKeyboardButton("🔴 SELL USDT (122৳)", callback_data="p2p_sell_start")]
+        [InlineKeyboardButton("📅 3 Days", callback_data="vpndays_3"), InlineKeyboardButton("📅 7 Days", callback_data="vpndays_7")],
+        [InlineKeyboardButton("📅 14 Days", callback_data="vpndays_14"), InlineKeyboardButton("📅 30 Days", callback_data="vpndays_30")]
     ]
+    await update.message.reply_text("💥 **VPN** 💥\n\n. **কত দিনের জন্য নিতে চান সিলেক্ট করুন:** 🛡️", reply_markup=InlineKeyboardMarkup(kb))
+
+async def vpn_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    days = int(query.data.split("_")[1])
+    context.user_data['buy_vpn_days'] = days
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT name, price FROM vpn_products WHERE days = ?', (days,))
+    prods = cursor.fetchall()
+    conn.close()
+    
+    if not prods:
+        await query.edit_message_text(f"❌ NO VPN PACKS FOR {days} DAYS!")
+        return
+        
+    kb = []
+    for name, price in prods:
+        kb.append([InlineKeyboardButton(f"{name} [{days}Days] - {price} BDT", callback_data=f"vpnpack_{name}_{price}")])
+    await query.edit_message_text(f"💥 **VPN ({days} Days)** 💥\n\n. **ভিপিএন সিলেক্ট করুন:** 🛡️", reply_markup=InlineKeyboardMarkup(kb))
+
+async def vpn_pack_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, name, price = query.data.split("_")
+    context.user_data['buy_vpn_name'] = name
+    context.user_data['buy_vpn_price'] = float(price)
+    
+    kb = [
+        [InlineKeyboardButton("1 pcs", callback_data="vpnqty_1"), InlineKeyboardButton("3 pcs", callback_data="vpnqty_3")],
+        [InlineKeyboardButton("5 pcs", callback_data="vpnqty_5"), InlineKeyboardButton("10 pcs", callback_data="vpnqty_10")],
+        [InlineKeyboardButton("📝 Enter Quantity", callback_data="vpnqty_custom")]
+    ]
+    await query.edit_message_text(f"💥 **VPN** 💥 {name} [{context.user_data['buy_vpn_days']} Days]\n\n❓ **কয়টি নিতে চান** 🛡️", reply_markup=InlineKeyboardMarkup(kb))
+
+async def vpn_qty_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data.split("_")[1]
+    
+    if data == "custom":
+        await query.edit_message_text("📝 **ENTER QUANTITY (NUMBER):**")
+        return VPN_QTY_CUSTOM
+    else:
+        qty = int(data)
+        return await finalize_vpn_order(update, context, qty, query)
+
+async def vpn_custom_qty_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
+    try:
+        qty = int(update.message.text.strip())
+        return await finalize_vpn_order(update, context, qty)
+    except ValueError:
+        await update.message.reply_text("❌ INVALID NUMBER!")
+        return VPN_QTY_CUSTOM
+
+async def finalize_vpn_order(update, context, qty, query=None):
+    user = update.effective_user
+    days = context.user_data.get('buy_vpn_days')
+    name = context.user_data.get('buy_vpn_name')
+    price_per = context.user_data.get('buy_vpn_price')
+    total_cost = price_per * qty
+    
+    bal = get_user_balance(user.id)
+    if bal < total_cost:
+        msg = f"❌ **INSUFFICIENT BALANCE!**\nTotal: `{total_cost} BDT`\nBalance: `{bal} BDT`"
+        if query: await query.edit_message_text(msg, parse_mode="Markdown")
+        else: await update.message.reply_text(msg, parse_mode="Markdown")
+        return ConversationHandler.END
+        
+    update_user_balance(user.id, -total_cost)
+    
+    user_msg = f"🎉 **ORDER SUBMITTED!**\n\n`VPN NON STOCK YOUR VPN ORDER 20_50 MINUTE AFTER APPROVAL`"
+    if query: await query.edit_message_text(user_msg, parse_mode="Markdown")
+    else: await update.message.reply_text(user_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+    
+    admin_req = f"🔔 **NEW VPN ORDER**\n\n👤 **User:** {user.full_name} (`{user.id}`)\n📦 **VPN:** {name}\n📅 **Days:** {days}\n🔢 **Qty:** {qty}\n💰 **Total Cost:** {total_cost} BDT"
+    kb = [[InlineKeyboardButton("🚀 DELIVER PRODUCT", callback_data=f"delivvpn_{user.id}")]]
+    await context.bot.send_message(ADMIN_ID, admin_req, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    return ConversationHandler.END
+
+# --- ADMIN MANUAL DELIVER ---
+async def start_admin_deliver(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    target_uid = query.data.split("_")[1]
+    context.user_data['deliver_target_uid'] = target_uid
+    await query.edit_message_text(f"🚀 **SEND PRODUCT DETAILS FOR USER `{target_uid}`:**", parse_mode="Markdown")
+    return ADMIN_VPN_DELIVER
+
+async def admin_deliver_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
+    target_uid = context.user_data.get('deliver_target_uid')
+    details = update.message.text
+    
+    try:
+        await context.bot.send_message(target_uid, f"🎁 **YOUR VPN ORDER DELIVERED!**\n\n{details}", parse_mode="Markdown")
+        await update.message.reply_text("✅ PRODUCT SENT TO USER SUCCESSFULLY!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ ERROR SENDING MESSAGE: {e}")
+    return ConversationHandler.END
+
+# --- STOCK ADDITION (ADMIN) ---
+async def start_add_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("🌐 ENTER PROXY NAME (E.G. `OWL PROXY`):")
+    return ADD_PROXY_NAME
+
+async def add_proxy_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
+    context.user_data['stk_prx_name'] = update.message.text.strip().upper()
+    await update.message.reply_text("💵 ENTER PRICE PER PROXY (BDT):")
+    return ADD_PROXY_PRICE
+
+async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
+    try:
+        context.user_data['stk_prx_price'] = float(update.message.text.strip())
+        await update.message.reply_text("📝 SEND PROXIES LINE BY LINE:\nFORMAT: `IP:PORT:USERNAME:PASSWORD`")
+        return ADD_PROXY_ITEMS
+    except ValueError:
+        await update.message.reply_text("❌ INVALID PRICE!")
+        return ADD_PROXY_PRICE
+
+async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
+    lines = update.message.text.strip().split('\n')
+    name = context.user_data.get('stk_prx_name')
+    price = context.user_data.get('stk_prx_price')
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    added = 0
+    for line in lines:
+        parts = line.strip().split(':')
+        if len(parts) == 4:
+            cursor.execute('INSERT INTO proxy_products (category, price, ip, port, username, password) VALUES (?, ?, ?, ?, ?, ?)', (name, price, parts[0], parts[1], parts[2], parts[3]))
+            added += 1
+    conn.commit()
+    conn.close()
+    await update.message.reply_text(f"✅ ADDED {added} PROXIES TO STOCK!", reply_markup=get_main_keyboard(ADMIN_ID))
+    return ConversationHandler.END
+
+async def start_add_vpn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("🛡️ ENTER VPN NAME (E.G. `Proton`):")
+    return ADD_VPN_NAME
+
+async def add_vpn_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
+    context.user_data['stk_vpn_name'] = update.message.text.strip()
+    await update.message.reply_text("📅 ENTER DAYS (E.G. 3, 7, 14, 30):")
+    return ADD_VPN_DAYS
+
+async def add_vpn_days_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
+    try:
+        context.user_data['stk_vpn_days'] = int(update.message.text.strip())
+        await update.message.reply_text("💵 ENTER PRICE (BDT):")
+        return ADD_VPN_PRICE
+    except ValueError:
+        await update.message.reply_text("❌ INVALID NUMBER!")
+        return ADD_VPN_DAYS
+
+async def add_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
+    try:
+        price = float(update.message.text.strip())
+        name = context.user_data.get('stk_vpn_name')
+        days = context.user_data.get('stk_vpn_days')
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO vpn_products (name, days, price) VALUES (?, ?, ?)', (name, days, price))
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(f"✅ ADDED {name} [{days} Days] FOR {price} BDT!", reply_markup=get_main_keyboard(ADMIN_ID))
+        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("❌ INVALID PRICE!")
+        return ADD_VPN_PRICE
+
+# --- P2P HANDLERS ---
+async def show_p2p_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = "🔄 **P2P USDT TRADING ZONE**\n\n📢 **BUY USDT:** 1 $ = 130 ৳\n📢 **SELL USDT:** 1 $ = 122 ৳"
+    kb = [[InlineKeyboardButton("💵 BUY USDT", callback_data="p2p_buy")], [InlineKeyboardButton("🔴 SELL USDT", callback_data="p2p_sell")]]
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 async def p2p_buy_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("💵 **TO BUY USDT, PLEASE CONTACT ADMIN DIRECTLY.**\nADMIN: @ADMINSUPPORT", parse_mode="Markdown")
+    await query.edit_message_text("💵 CONTACT ADMIN TO BUY USDT: @ADMINSUPPORT")
 
 async def p2p_sell_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    kb = [
-        [InlineKeyboardButton("💗 BKASH", callback_data="p2p_method_BKASH")],
-        [InlineKeyboardButton("🧡 NAGAD", callback_data="p2p_method_NAGAD")]
-    ]
-    await query.edit_message_text("💳 **SELECT BDT PAYMENT METHOD TO RECEIVE MONEY:**", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    kb = [[InlineKeyboardButton("💗 BKASH", callback_data="p2psell_BKASH")], [InlineKeyboardButton("🧡 NAGAD", callback_data="p2psell_NAGAD")]]
+    await query.edit_message_text("💳 SELECT PAYMENT METHOD TO RECEIVE BDT:", reply_markup=InlineKeyboardMarkup(kb))
 
-async def p2p_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def p2p_sell_method_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    method = query.data.split("_")[2]
-    context.user_data['p2p_bdt_method'] = method
-    await query.edit_message_text(f"📞 ENTER YOUR **{method}** ACCOUNT NUMBER TO RECEIVE BDT:")
+    method = query.data.split("_")[1]
+    context.user_data['p2p_method'] = method
+    await query.edit_message_text(f"📞 ENTER YOUR {method} NUMBER:")
     return P2P_SELL_NUMBER
 
-async def p2p_number_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS:
-        await handle_buttons(update, context)
-        return ConversationHandler.END
+async def p2p_number_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     context.user_data['p2p_number'] = update.message.text.strip()
     kb = [
-        [InlineKeyboardButton("🟡 BINANCE PAY ID", callback_data="p2p_addr_BINANCE")],
-        [InlineKeyboardButton("🌐 BEP-20 (BSC)", callback_data="p2p_addr_BEP20")],
-        [InlineKeyboardButton("🌐 TRC-20 (TRON)", callback_data="p2p_addr_TRC20")]
+        [InlineKeyboardButton("🟡 BINANCE PAY ID", callback_data="p2pnet_BINANCE")],
+        [InlineKeyboardButton("🌐 BEP-20", callback_data="p2pnet_BEP20")],
+        [InlineKeyboardButton("🌐 TRC-20", callback_data="p2pnet_TRC20")]
     ]
-    await update.message.reply_text("🌐 **SELECT NETWORK ADDRESS TO SEND USDT:**", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text("🌐 SELECT NETWORK ADDRESS:", reply_markup=InlineKeyboardMarkup(kb))
 
-async def p2p_addr_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def p2p_net_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    net = query.data.split("_")[2]
-    
+    net = query.data.split("_")[1]
     addr = BINANCE_ID if net == "BINANCE" else BEP20_ADDRESS if net == "BEP20" else TRC20_ADDRESS
-    context.user_data['p2p_network'] = net
+    context.user_data['p2p_net'] = net
     
-    msg = (
-        f"📥 **SEND USDT TO THIS ADDRESS**\n━━━━━━━━━━━━━━━━━━\n"
-        f"🌐 **NETWORK:** {net}\n"
-        f"🔑 **ADDRESS / ID:** `{addr}`\n━━━━━━━━━━━━━━━━━━\n"
-        f"SEND USDT AND CLICK **CONFIRM PAYMENT** BELOW:"
-    )
-    kb = [[InlineKeyboardButton("✅ CONFIRM PAYMENT", callback_data="p2p_confirm_sent")]]
+    msg = f"📥 **SEND USDT TO THIS ADDRESS**\n\n🌐 **NETWORK:** {net}\n🔑 **ADDRESS:** `{addr}`\n\nClick **CONFIRM PAYMENT** after sending."
+    kb = [[InlineKeyboardButton("✅ CONFIRM PAYMENT", callback_data="p2p_confirm")]]
     await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-async def p2p_confirm_sent(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def p2p_confirm_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("📸 **PLEASE SEND A SCREENSHOT / PHOTO AS PROOF OF PAYMENT:**", parse_mode="Markdown")
+    await query.edit_message_text("📸 **SEND SCREENSHOT / PROOF OF PAYMENT:**")
     return P2P_SELL_PROOF
 
-async def p2p_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def p2p_proof_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1].file_id
-    bdt_method = context.user_data.get('p2p_bdt_method', 'N/A')
-    bdt_number = context.user_data.get('p2p_number', 'N/A')
-    network = context.user_data.get('p2p_network', 'N/A')
+    method = context.user_data.get('p2p_method')
+    number = context.user_data.get('p2p_number')
+    net = context.user_data.get('p2p_net')
     
-    await update.message.reply_text("⏳ **P2P SELL REQUEST SUBMITTED!** ADMIN WILL REVIEW AND SEND BDT SOON.", reply_markup=get_main_keyboard(user.id))
-    
-    admin_msg = (
-        f"🚨 **NEW P2P SELL USDT REQUEST**\n━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **USER:** {user.full_name.upper()} (`{user.id}`)\n"
-        f"💳 **RECEIVE METHOD:** {bdt_method}\n"
-        f"📞 **RECEIVE NUMBER:** `{bdt_number}`\n"
-        f"🌐 **NETWORK:** {network}\n━━━━━━━━━━━━━━━━━━"
-    )
-    await context.bot.send_photo(chat_id=ADMIN_ID, photo=photo, caption=admin_msg, parse_mode="Markdown")
+    await update.message.reply_text("⏳ **P2P REQUEST SUBMITTED!**", reply_markup=get_main_keyboard(user.id))
+    admin_msg = f"🚨 **P2P SELL REQUEST**\nUser: {user.full_name} (`{user.id}`)\nMethod: {method}\nNumber: `{number}`\nNetwork: {net}"
+    await context.bot.send_photo(ADMIN_ID, photo, caption=admin_msg, parse_mode="Markdown")
     return ConversationHandler.END
 
-# --- GENERAL BUTTON HANDLERS ---
+# --- GENERAL BUTTON HANDLER ---
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
     
-    if text == "💳 DEPOSIT":
-        await deposit_start(update, context)
-    elif text == "💰 BALANCE":
-        bal = get_user_balance(user_id)
-        await update.message.reply_text(f"📊 **ACCOUNT BALANCE**\n\n🆔 USER ID: `{user_id}`\n💰 BALANCE: `{bal} BDT`", parse_mode="Markdown")
-    elif text == "🛡️ BUY VPN":
-        await show_store(update, context, "VPN")
-    elif text == "🌐 BUY PROXY":
-        await show_store(update, context, "PROXY")
-    elif text == "🔄 P2P(USDT BUY & SELL)":
-        await show_p2p_menu(update, context)
-    elif text == "👑 ADMIN PANEL":
-        await admin_panel(update, context)
+    if text == "💳 DEPOSIT": await deposit_start(update, context)
+    elif text == "💰 BALANCE": await update.message.reply_text(f"📊 **BALANCE:** `{get_user_balance(user_id)} BDT`", parse_mode="Markdown")
+    elif text == "🛡️ BUY VPN": await start_vpn_flow(update, context)
+    elif text == "🌐 BUY PROXY": await show_proxy_store(update, context)
+    elif text == "🔄 P2P(USDT BUY & SELL)": await show_p2p_menu(update, context)
+    elif text == "👑 ADMIN PANEL": await admin_panel(update, context)
 
 def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # DEPOSIT CONVERSATION
-    deposit_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(method_selected, pattern="^method_"),
-            MessageHandler(filters.Regex("^(💳 DEPOSIT)$"), deposit_start)
-        ],
+    # CONVERSATIONS
+    dep_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(dep_method_selected, pattern="^dep_"), MessageHandler(filters.Regex("^(💳 DEPOSIT)$"), deposit_start)],
         states={
-            WAITING_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, amount_received)],
-            WAITING_TRXID: [
-                CallbackQueryHandler(payment_done_clicked, pattern="^payment_done$"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, trxid_received)
-            ]
+            WAITING_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, dep_amount_received)],
+            WAITING_TRXID: [CallbackQueryHandler(dep_done_clicked, pattern="^dep_done$"), MessageHandler(filters.TEXT & ~filters.COMMAND, dep_trx_received)]
         },
         fallbacks=[CommandHandler("start", start)]
     )
     
-    # ADMIN STOCK CONVERSATION
-    admin_stock_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_add_stock, pattern="^admin_add_")],
+    vpn_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(vpn_qty_process, pattern="^vpnqty_")],
+        states={VPN_QTY_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, vpn_custom_qty_received)]},
+        fallbacks=[CommandHandler("start", start)]
+    )
+    
+    admin_deliver_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_admin_deliver, pattern="^delivvpn_")],
+        states={ADMIN_VPN_DELIVER: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_deliver_received)]},
+        fallbacks=[CommandHandler("start", start)]
+    )
+    
+    add_prx_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_add_proxy, pattern="^admin_add_proxy$")],
         states={
-            ADD_STOCK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_name_received)],
-            ADD_STOCK_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_price_received)],
-            ADD_STOCK_ITEMS: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_items_received)]
+            ADD_PROXY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_name_rec)],
+            ADD_PROXY_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_price_rec)],
+            ADD_PROXY_ITEMS: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_items_rec)]
         },
         fallbacks=[CommandHandler("start", start)]
     )
-    
-    # ADMIN BROADCAST CONVERSATION
-    admin_bc_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_broadcast, pattern="^admin_broadcast$")],
-        states={BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_broadcast)]},
-        fallbacks=[CommandHandler("start", start)]
-    )
-    
-    # P2P SELL CONVERSATION
-    p2p_sell_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(p2p_method_selected, pattern="^p2p_method_"),
-            CallbackQueryHandler(p2p_confirm_sent, pattern="^p2p_confirm_sent$")
-        ],
+
+    add_vpn_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_add_vpn, pattern="^admin_add_vpn$")],
         states={
-            P2P_SELL_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, p2p_number_received)],
-            P2P_SELL_PROOF: [MessageHandler(filters.PHOTO, p2p_proof_received)]
+            ADD_VPN_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_vpn_name_rec)],
+            ADD_VPN_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_vpn_days_rec)],
+            ADD_VPN_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_vpn_price_rec)]
         },
         fallbacks=[CommandHandler("start", start)]
     )
-    
-    # COMMANDS
+
+    p2p_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(p2p_sell_method_rec, pattern="^p2psell_"), CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm$")],
+        states={
+            P2P_SELL_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, p2p_number_rec)],
+            P2P_SELL_PROOF: [MessageHandler(filters.PHOTO, p2p_proof_rec)]
+        },
+        fallbacks=[CommandHandler("start", start)]
+    )
+
+    # HANDLERS REGISTER
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(CommandHandler("addbal", addbal_cmd))
     
-    # CONVERSATIONS
-    app.add_handler(deposit_conv)
-    app.add_handler(admin_stock_conv)
-    app.add_handler(admin_bc_conv)
-    app.add_handler(p2p_sell_conv)
+    app.add_handler(dep_conv)
+    app.add_handler(vpn_conv)
+    app.add_handler(admin_deliver_conv)
+    app.add_handler(add_prx_conv)
+    app.add_handler(add_vpn_conv)
+    app.add_handler(p2p_conv)
     
-    # CALLBACK HANDLERS
-    app.add_handler(CallbackQueryHandler(handle_deposit_approval, pattern="^dep_"))
-    app.add_handler(CallbackQueryHandler(process_buy_product, pattern="^buy_p_"))
-    app.add_handler(CallbackQueryHandler(p2p_buy_info, pattern="^p2p_buy_info$"))
-    app.add_handler(CallbackQueryHandler(p2p_sell_start, pattern="^p2p_sell_start$"))
-    app.add_handler(CallbackQueryHandler(p2p_addr_selected, pattern="^p2p_addr_"))
+    app.add_handler(CallbackQueryHandler(dep_approval_handler, pattern="^depapp_"))
+    app.add_handler(CallbackQueryHandler(show_proxy_store, pattern="^buy_proxy$"))
+    app.add_handler(CallbackQueryHandler(buy_proxy_process, pattern="^buyprx_"))
+    app.add_handler(CallbackQueryHandler(vpn_days_selected, pattern="^vpndays_"))
+    app.add_handler(CallbackQueryHandler(vpn_pack_selected, pattern="^vpnpack_"))
+    app.add_handler(CallbackQueryHandler(p2p_buy_info, pattern="^p2p_buy$"))
+    app.add_handler(CallbackQueryHandler(p2p_sell_start, pattern="^p2p_sell$"))
+    app.add_handler(CallbackQueryHandler(p2p_net_rec, pattern="^p2pnet_"))
     
-    # GENERAL MESSAGE HANDLER
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
-    print("BOT IS RUNNING...")
+    print("BOT IS RUNNING PERFECTLY...")
     app.run_polling()
 
 if __name__ == "__main__":
