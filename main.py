@@ -9,8 +9,8 @@ from telegram.ext import (
 # Logging Setup
 logging.basicConfig(level=logging.INFO)
 
-# Configs
-TOKEN = "8733585059:AAHw7igMJkclCmEtOU1y73T2C2n0hILhWx0"
+# Configs - Updated Token
+TOKEN = "8733585059:AAE3XL0aHVQ2gdw3BAm6RKkMSZeDXq8pe6g"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
 
@@ -61,9 +61,9 @@ def update_user_balance(user_id, amount):
 
 # --- KEYBOARDS ---
 MAIN_KEYBOARD = [
-    ["🛡️ BUY VPN", "🌐 BUY PROXY"],
-    ["🔄 P2P(USDT BUY & SELL)"],
-    ["💳 DEPOSIT", "💰 BALANCE"]
+    ["BUY VPN", "BUY PROXY"],
+    ["P2P(USDT BUY & SELL)"],
+    ["DEPOSIT", "BALANCE"]
 ]
 reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
 
@@ -279,16 +279,16 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
     
-    if text in ["💳 DEPOSIT", "DEPOSIT", "Deposit"]:
+    if text in ["DEPOSIT", "Deposit", "💳 DEPOSIT"]:
         await deposit_start(update, context)
-    elif text in ["💰 BALANCE", "BALANCE", "Balance"]:
+    elif text in ["BALANCE", "Balance", "💰 BALANCE"]:
         bal = get_user_balance(user_id)
         await update.message.reply_text(f"📊 **ACCOUNT BALANCE**\n\n🆔 User ID: `{user_id}`\n💰 Balance: `{bal} BDT`", parse_mode="Markdown")
-    elif text in ["🛡️ BUY VPN", "BUY VPN"]:
+    elif text in ["BUY VPN", "BUY VPN"]:
         await update.message.reply_text("🛡️ VPN store coming soon!")
-    elif text in ["🌐 BUY PROXY", "BUY PROXY"]:
+    elif text in ["BUY PROXY", "BUY PROXY"]:
         await update.message.reply_text("🌐 Proxy store coming soon!")
-    elif text in ["🔄 P2P(USDT BUY & SELL)", "P2P(USDT BUY & SELL)"]:
+    elif text in ["P2P(USDT BUY & SELL)"]:
         await update.message.reply_text("🔄 P2P USDT Buy & Sell service coming soon!")
 
 def main():
@@ -298,7 +298,7 @@ def main():
     deposit_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(method_selected, pattern="^method_"),
-            MessageHandler(filters.Regex("^(💳 DEPOSIT|DEPOSIT|Deposit)$"), deposit_start)
+            MessageHandler(filters.Regex("^(DEPOSIT|Deposit|💳 DEPOSIT)$"), deposit_start)
         ],
         states={
             WAITING_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, amount_received)],
