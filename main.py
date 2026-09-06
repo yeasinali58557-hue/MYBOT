@@ -24,8 +24,8 @@ def run_dummy_server():
 
 logging.basicConfig(level=logging.INFO)
 
-# CONFIGS
-TOKEN = "8733585059:AAE3XL0aHVQ2gdw3BAm6RKkMSZeDXq8pe6g"
+# CONFIGS (NEW REVOKED TOKEN APPLIED)
+TOKEN = "8733585059:AAEOznbOV6FEDmP-qk_VFRSzyuthX93r0Js"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
 
