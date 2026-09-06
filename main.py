@@ -1,16 +1,27 @@
 import logging
 import sqlite3
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
+    MessageHandler, ContextTypes, ConversationHandler, filters
+)
 
-# Logging setup
+# Logging Setup
 logging.basicConfig(level=logging.INFO)
 
 # Configs
 TOKEN = "8733585059:AAHw7igMJkclCmEtOU1y73T2C2n0hILhWx0"
-ADMIN_ID = 7753794493  # Replace with your actual Admin ID
-BINANCE_PAY_ID = "7753794493"  # Change to your actual Binance Pay ID / Number
+ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
+
+# Payment Details
+BKASH_NUMBER = "01610184434"
+NAGAD_NUMBER = "01610184434"
+BINANCE_ID = "7753794493"
+
+# Conversation States
+WAITING_AMOUNT = 1
+WAITING_TRXID = 2
 
 # --- DATABASE SETUP ---
 def init_db():
@@ -38,7 +49,7 @@ def get_user_balance(user_id):
     conn.close()
     return row[0]
 
-def add_user_balance(user_id, amount):
+def update_user_balance(user_id, amount):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     current_bal = get_user_balance(user_id)
@@ -48,126 +59,276 @@ def add_user_balance(user_id, amount):
     conn.close()
     return new_bal
 
-# --- BOT KEYBOARDS ---
-KEYBOARD = [
-    ["🌐 BUY PROXY", "🛡 BUY VPN"],
-    ["💱 P2P (USDT BUY & SELL)"],
-    ["💰 DEPOSIT", "📜 HISTORY"]
+# --- KEYBOARDS ---
+MAIN_KEYBOARD = [
+    ["🛍️ Buy Now", "✉️ Mail Code"],
+    ["🔐 2FA Code"],
+    ["💰 Deposit", "📊 Dashboard"],
+    ["🎧 Support"]
 ]
-reply_markup = ReplyKeyboardMarkup(KEYBOARD, resize_keyboard=True)
+reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
 
-# --- HANDLERS ---
+# --- START & MENU HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    balance = get_user_balance(user_id)
+    user = update.effective_user
+    get_user_balance(user.id)
     
-    welcome_text = (
-        f"Welcome to the Store!\n\n"
-        f"👤 **User ID:** `{user_id}`\n"
-        f"💰 **Balance:** {balance} BDT\n\n"
-        f"Please select an option below:"
+    welcome_msg = (
+        f"👋 **Hello {user.first_name}!**\n"
+        f"Welcome to **Quick Store**!\n\n"
+        f"🆔 **User ID:** `{user.id}`\n"
+        f"💰 **Balance:** `{get_user_balance(user.id)} BDT`\n\n"
+        f"Select an option from below to continue:"
     )
-    await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=reply_markup)
+    await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=reply_markup)
 
-async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ You are not authorized to access the admin panel.")
+        await update.message.reply_text("⛔ You are not authorized to access Admin Panel.")
         return
     
     admin_text = (
         "👑 **ADMIN PANEL**\n\n"
-        "To add balance to a user, use command:\n"
-        "`/addbal USER_ID AMOUNT`\n\n"
-        "Example: `/addbal 123456789 500`"
+        "Commands:\n"
+        "• Add Balance: `/addbal USER_ID AMOUNT`\n\n"
+        "Deposit requests will automatically arrive here for approval."
     )
     await update.message.reply_text(admin_text, parse_mode="Markdown")
 
-async def addbal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def addbal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     try:
-        user_id = int(context.args[0])
+        target_id = int(context.args[0])
         amount = float(context.args[1])
-        new_bal = add_user_balance(user_id, amount)
-        
-        await update.message.reply_text(f"✅ Successfully added {amount} BDT to User `{user_id}`.\nNew Balance: {new_bal} BDT", parse_mode="Markdown")
-        
-        # Notify user
+        new_bal = update_user_balance(target_id, amount)
+        await update.message.reply_text(f"✅ Balance Updated!\nUser `{target_id}` New Balance: `{new_bal} BDT`", parse_mode="Markdown")
         try:
             await context.bot.send_message(
-                chat_id=user_id,
-                text=f"🎉 **Deposit Successful!**\n\n`{amount}` BDT has been added to your account.\nYour New Balance: `{new_bal}` BDT",
+                chat_id=target_id,
+                text=f"🎉 **Deposit Added!**\n\n`{amount} BDT` has been added to your account.\nNew Balance: `{new_bal} BDT`",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+    except Exception:
+        await update.message.reply_text("❌ Usage: `/addbal USER_ID AMOUNT`", parse_mode="Markdown")
+
+# --- DEPOSIT CONVERSATION FLOW ---
+async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("💗 Bkash", callback_data="method_Bkash")],
+        [InlineKeyboardButton("🧡 Nagad", callback_data="method_Nagad")],
+        [InlineKeyboardButton("🟡 Binance", callback_data="method_Binance")]
+    ]
+    await update.message.reply_text(
+        "💵 **Select Payment Method:**", 
+        parse_mode="Markdown", 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    method = query.data.split("_")[1]
+    context.user_data['deposit_method'] = method
+    
+    await query.edit_message_text(
+        f"💳 **Method Selected:** `{method}`\n\n"
+        f"**কত টাকা ডিপোজিট করবেন তা লিখে পাঠান:**",
+        parse_mode="Markdown"
+    )
+    return WAITING_AMOUNT
+
+async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        amount = float(update.message.text.strip())
+        if amount <= 0:
+            await update.message.reply_text("❌ Invalid amount! Please enter a valid number:")
+            return WAITING_AMOUNT
+            
+        context.user_data['deposit_amount'] = amount
+        method = context.user_data.get('deposit_method', 'Bkash')
+        
+        number = BKASH_NUMBER if method == "Bkash" else NAGAD_NUMBER if method == "Nagad" else BINANCE_ID
+        instruction = f"এই নাম্বারে টাকা পাঠান: `{number}`" if method != "Binance" else f"Binance Pay ID: `{number}`"
+        
+        text = (
+            f"📥 **Deposit Request**\n\n"
+            f"• **Method:** {method}\n"
+            f"• **Amount:** {amount} BDT\n\n"
+            f"{instruction}\n\n"
+            f"*(ট্যাপ করে নাম্বার/আইডি কপি করুন)*\n\n"
+            f"পেমেন্ট সম্পন্ন হলে নিচের **Payment Done** বাটনে ক্লিক করুন:"
+        )
+        keyboard = [[InlineKeyboardButton("✅ Payment Done", callback_data="payment_done")]]
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return WAITING_TRXID
+        
+    except ValueError:
+        await update.message.reply_text("❌ Please send a valid number for amount:")
+        return WAITING_AMOUNT
+
+async def payment_done_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    await query.edit_message_text(
+        "⚙️ **Transaction ID (TrxID) দিন:**\n\n"
+        "আপনার পেমেন্টের TrxID/TxID টি মেসেজে লিখে পাঠান:",
+        parse_mode="Markdown"
+    )
+    return WAITING_TRXID
+
+async def trxid_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    trx_id = update.message.text.strip()
+    user = update.effective_user
+    method = context.user_data.get('deposit_method', 'N/A')
+    amount = context.user_data.get('deposit_amount', 0.0)
+    
+    # 1. Reply to User
+    user_confirm_text = (
+        "⏳ **Deposit Request Submitted!**\n\n"
+        "আপনার অনুরোধটি এডমিনের কাছে পাঠানো হয়েছে।\n"
+        "অনুগ্রহ করে **২-৩ মিনিট** অপেক্ষা করুন, ভেরিফাই করে অ্যাপ্রুভ করে দেওয়া হবে।"
+    )
+    await update.message.reply_text(user_confirm_text, parse_mode="Markdown", reply_markup=reply_markup)
+    
+    # 2. Notify Admin with Buttons
+    admin_notify_text = (
+        f"📥 **NEW DEPOSIT REQUEST**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **User:** {user.full_name} (`{user.id}`)\n"
+        f"💳 **Method:** {method}\n"
+        f"💰 **Amount:** `{amount} BDT`\n"
+        f"🔑 **TrxID:** `{trx_id}`\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    admin_keyboard = [
+        [
+            InlineKeyboardButton("✅ Approve", callback_data=f"dep_app_{user.id}_{amount}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"dep_rej_{user.id}_{amount}")
+        ]
+    ]
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=admin_notify_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(admin_keyboard)
+    )
+    
+    return ConversationHandler.END
+
+async def deposit_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Deposit cancelled.", reply_markup=reply_markup)
+    return ConversationHandler.END
+
+# --- ADMIN DEPOSIT APPROVAL HANDLER ---
+async def admin_deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split("_")
+    action = data[1]     # 'app' or 'rej'
+    target_id = int(data[2])
+    amount = float(data[3])
+    
+    if action == "app":
+        new_bal = update_user_balance(target_id, amount)
+        
+        # Edit Admin Message
+        await query.edit_message_text(
+            f"{query.message.text}\n\n✅ **STATUS:** APPROVED (+{amount} BDT)",
+            parse_mode="Markdown"
+        )
+        
+        # Send User Notification
+        try:
+            await context.bot.send_message(
+                chat_id=target_id,
+                text=(
+                    f"🎉 **Deposit Approved!**\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"💰 **Added:** `{amount} BDT`\n"
+                    f"💳 **Current Balance:** `{new_bal} BDT`\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"ধন্যবাদ আমাদের পরিষেবা ব্যবহার করার জন্য!"
+                ),
                 parse_mode="Markdown"
             )
         except Exception:
             pass
             
-    except (IndexError, ValueError):
-        await update.message.reply_text("❌ Invalid Format!\nUse: `/addbal USER_ID AMOUNT`", parse_mode="Markdown")
+    elif action == "rej":
+        # Edit Admin Message
+        await query.edit_message_text(
+            f"{query.message.text}\n\n❌ **STATUS:** REJECTED",
+            parse_mode="Markdown"
+        )
+        
+        # Send User Notification
+        try:
+            await context.bot.send_message(
+                chat_id=target_id,
+                text=(
+                    f"❌ **Deposit Rejected!**\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"আপনার `{amount} BDT` ডিপোজিট রিকোয়েস্টটি বাতিল করা হয়েছে।\n"
+                    f"সঠিক TrxID দিয়ে পুনরায় চেষ্টা করুন অথবা সাপোর্টে যোগাযোগ করুন।"
+                ),
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- GENERAL BUTTON HANDLERS ---
+async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
     
-    if text == "💰 DEPOSIT":
-        deposit_keyboard = [
-            [InlineKeyboardButton("🟡 Binance Pay", callback_data="dep_binance")],
-            [InlineKeyboardButton("📱 bKash / Nagad", callback_data="dep_mfs")]
-        ]
-        await update.message.reply_text(
-            "💳 **Select Payment Method:**", 
-            parse_mode="Markdown", 
-            reply_markup=InlineKeyboardMarkup(deposit_keyboard)
-        )
-    elif text == "🌐 BUY PROXY":
-        balance = get_user_balance(user_id)
-        await update.message.reply_text(f"Proxy catalog coming soon!\nYour Current Balance: {balance} BDT")
-    elif text == "🛡 BUY VPN":
-        await update.message.reply_text("VPN catalog coming soon!")
-    elif text == "💱 P2P (USDT BUY & SELL)":
-        await update.message.reply_text("P2P trading desk coming soon!")
-    elif text == "📜 HISTORY":
-        balance = get_user_balance(user_id)
-        await update.message.reply_text(f"📜 **Account Summary**\n\nBalance: {balance} BDT\nNo past transactions.")
-
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "dep_binance":
-        binance_text = (
-            "🟡 **Binance Deposit**\n\n"
-            f"Send payment to Binance Pay ID:\n`{BINANCE_PAY_ID}`\n\n"
-            "*(Tap on the number above to copy)*\n\n"
-            "After sending, submit transaction proof to Admin."
-        )
-        back_keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back_deposit")]]
-        await query.edit_message_text(binance_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(back_keyboard))
-        
-    elif query.data == "back_deposit":
-        deposit_keyboard = [
-            [InlineKeyboardButton("🟡 Binance Pay", callback_data="dep_binance")],
-            [InlineKeyboardButton("📱 bKash / Nagad", callback_data="dep_mfs")]
-        ]
-        await query.edit_message_text(
-            "💳 **Select Payment Method:**", 
-            parse_mode="Markdown", 
-            reply_markup=InlineKeyboardMarkup(deposit_keyboard)
-        )
+    if text in ["💰 Deposit", "Deposit"]:
+        await deposit_start(update, context)
+    elif text in ["📊 Dashboard", "Dashboard"]:
+        bal = get_user_balance(user_id)
+        await update.message.reply_text(f"📊 **Dashboard**\n\n🆔 User ID: `{user_id}`\n💰 Balance: `{bal} BDT`", parse_mode="Markdown")
+    elif text in ["🛍️ Buy Now", "Buy Now"]:
+        await update.message.reply_text("🛍️ Products catalog coming soon!")
+    elif text in ["✉️ Mail Code", "Mail Code"]:
+        await update.message.reply_text("✉️ Mail Code feature coming soon!")
+    elif text in ["🔐 2FA Code", "2FA Code"]:
+        await update.message.reply_text("🔐 2FA Code feature coming soon!")
+    elif text in ["🎧 Support", "Support"]:
+        await update.message.reply_text("🎧 Support Contact: @admin")
 
 def main():
-    init_db()  # Initialize Database Table
-    
+    init_db()
     app = ApplicationBuilder().token(TOKEN).build()
     
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin))
-    app.add_handler(CommandHandler("addbal", addbal_command))
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Deposit Conversation Handler
+    deposit_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(method_selected, pattern="^method_"),
+            MessageHandler(filters.Regex("^(💰 Deposit|Deposit)$"), deposit_start)
+        ],
+        states={
+            WAITING_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, amount_received)],
+            WAITING_TRXID: [
+                CallbackQueryHandler(payment_done_clicked, pattern="^payment_done$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, trxid_received)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", deposit_cancel)]
+    )
     
-    print("Bot is running with SQLite Database...")
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("addbal", addbal_cmd))
+    app.add_handler(deposit_conv)
+    app.add_handler(CallbackQueryHandler(admin_deposit_callback, pattern="^dep_(app|rej)_"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
+    
+    print("Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
