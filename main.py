@@ -42,7 +42,7 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance REAL DEFAULT 0.0)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS proxy_products (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT, price REAL, ip TEXT, port TEXT, username TEXT, password TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS proxy_products (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT, price REAL, ip TEXT, port TEXT, username TEXT, password TEXT, status TEXT DEFAULT 'AVAILABLE')''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS vpn_products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, days INTEGER, price REAL)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS sales_history (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type TEXT, name TEXT, price REAL, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)''')
@@ -71,7 +71,7 @@ def get_setting(key):
 def set_setting(key, value):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
+    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (k, v))
     conn.commit()
     conn.close()
 
@@ -126,35 +126,224 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
     await handle_buttons(update, context)
     return ConversationHandler.END
 
-# --- ADMIN PANEL & BROADCAST ---
+# --- ADMIN PANEL & DASHBOARD ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return ConversationHandler.END
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM proxy_products')
-    proxy_stock = cursor.fetchone()[0]
-    cursor.execute('SELECT COUNT(*) FROM sales_history WHERE item_type = "PROXY"')
+    
+    # Proxy Stats
+    cursor.execute('SELECT COUNT(*) FROM proxy_products WHERE status = "AVAILABLE"')
+    proxy_avail = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM proxy_products WHERE status = "SOLD"')
     proxy_sold = cursor.fetchone()[0]
+    total_proxy = proxy_avail + proxy_sold
+    
     cursor.execute('SELECT COUNT(*) FROM users')
     total_users = cursor.fetchone()[0]
     conn.close()
 
     kb = [
         [InlineKeyboardButton("📢 BROADCAST MESSAGE", callback_data="admin_broadcast")],
-        [InlineKeyboardButton("➕ MANAGE VPN STOCK", callback_data="admin_manage_vpn"), InlineKeyboardButton("➕ MANAGE PROXY STOCK", callback_data="admin_manage_proxy")],
+        [InlineKeyboardButton("🛡️ MANAGE VPN STOCK", callback_data="admin_manage_vpn"), InlineKeyboardButton("🌐 MANAGE PROXY STOCK", callback_data="admin_manage_proxy")],
         [InlineKeyboardButton("⚙️ SETTINGS (ADDRESS & NUMBERS)", callback_data="admin_settings")]
     ]
-    admin_text = f"👑 ADMIN DASHBOARD\n\n👥 TOTAL USERS: {total_users}\n🌐 PROXY STOCK: {proxy_stock} PCS\n🛒 PROXY SOLD: {proxy_sold} PCS"
+    
+    admin_text = (
+        f"👑 **ADMIN DASHBOARD**\n\n"
+        f"👥 TOTAL USERS: `{total_users}`\n\n"
+        f"📊 **PROXY STATS:**\n"
+        f"📦 TOTAL UPLOADED: `{total_proxy}` PCS\n"
+        f"✅ AVAILABLE: `{proxy_avail}` PCS\n"
+        f"🛒 SOLD OUT: `{proxy_sold}` PCS"
+    )
     
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(admin_text, reply_markup=InlineKeyboardMarkup(kb))
+        await update.callback_query.edit_message_text(admin_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     else:
-        await update.message.reply_text(admin_text, reply_markup=InlineKeyboardMarkup(kb))
+        await update.message.reply_text(admin_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     return ConversationHandler.END
 
+# --- PROXY STOCK & BULK IMPORT ---
+async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT category, price FROM proxy_products GROUP BY category')
+    categories = cursor.fetchall()
+
+    kb = []
+    text_info = "⚙️ **PROXY STOCK MANAGEMENT PANEL**\n\n"
+    
+    if categories:
+        text_info += "📋 **CATEGORY STATS:**\n"
+        for (cat_name, price) in categories:
+            cursor.execute('SELECT COUNT(*) FROM proxy_products WHERE category = ? AND status = "AVAILABLE"', (cat_name,))
+            avail = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM proxy_products WHERE category = ? AND status = "SOLD"', (cat_name,))
+            sold = cursor.fetchone()[0]
+            total = avail + sold
+            
+            text_info += f"• **{cat_name.upper()}**: Total `{total}` | Available `{avail}` | Sold `{sold}`\n"
+            kb.append([
+                InlineKeyboardButton(f"🌐 {cat_name.upper()} ({avail} Avail)", callback_data=f"infoprx_{cat_name}"),
+                InlineKeyboardButton("✏️ EDIT", callback_data=f"editprx_menu_{cat_name}")
+            ])
+    else:
+        text_info += "❌ No proxy categories found."
+
+    conn.close()
+    kb.append([InlineKeyboardButton("➕ ADD BULK PROXY STOCK", callback_data="admin_add_proxy")])
+    kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
+    
+    await query.edit_message_text(text_info, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+
+async def start_add_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("🌐 ENTER PROXY CATEGORY NAME (e.g. USA SOCKS5, RESIDENTIAL, 9PROXY):")
+    return ADD_PROXY_NAME
+
+async def add_proxy_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['stk_prx_name'] = update.message.text.strip().upper()
+    await update.message.reply_text("💵 ENTER PRICE PER PROXY (BDT):")
+    return ADD_PROXY_PRICE
+
+async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        context.user_data['stk_prx_price'] = float(update.message.text.strip())
+        msg = (
+            "🚀 **PASTE BULK PROXIES NOW!**\n\n"
+            "একসাথে যত খুশি প্রক্সি পেস্ট করে পাঠিয়ে দিন।\n\n"
+            "📌 **SUPPORTED FORMATS:**\n"
+            "`IP:PORT:USERNAME:PASSWORD`\n"
+            "`IP:PORT`"
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return ADD_PROXY_ITEMS
+    except ValueError:
+        await update.message.reply_text("❌ INVALID PRICE!")
+        return ADD_PROXY_PRICE
+
+async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lines = update.message.text.strip().split('\n')
+    name = context.user_data.get('stk_prx_name')
+    price = context.user_data.get('stk_prx_price')
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    added_count = 0
+    skipped_count = 0
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        parts = line.split(':')
+        ip, port, uname, pwd = "", "", "", ""
+        
+        if len(parts) == 4:
+            ip, port, uname, pwd = parts[0], parts[1], parts[2], parts[3]
+        elif len(parts) == 2:
+            ip, port = parts[0], parts[1]
+        else:
+            continue
+
+        # Duplicate Check
+        cursor.execute('SELECT id FROM proxy_products WHERE ip = ? AND port = ?', (ip, port))
+        if cursor.fetchone():
+            skipped_count += 1
+            continue
+
+        cursor.execute(
+            'INSERT INTO proxy_products (category, price, ip, port, username, password, status) VALUES (?, ?, ?, ?, ?, ?, "AVAILABLE")',
+            (name, price, ip, port, uname, pwd)
+        )
+        added_count += 1
+
+    conn.commit()
+    conn.close()
+    
+    result_text = (
+        f"✅ **BULK PROXY IMPORTED SUCCESSFULLY!**\n\n"
+        f"📦 CATEGORY: `{name}`\n"
+        f"💵 PRICE: `{price}` BDT\n"
+        f"➕ ADDED: `{added_count}` PCS\n"
+        f"⚠️ DUPLICATE/SKIPPED: `{skipped_count}` PCS"
+    )
+    await update.message.reply_text(result_text, parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+    return ConversationHandler.END
+
+# --- BUY PROXY STORE & DELIVERY ---
+async def show_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT category, price, COUNT(*) FROM proxy_products WHERE status = "AVAILABLE" GROUP BY category')
+    items = cursor.fetchall()
+    conn.close()
+    
+    if not items:
+        await update.message.reply_text("❌ NO PROXY STOCK AVAILABLE RIGHT NOW!")
+        return
+        
+    kb = []
+    for cat, price, count in items:
+        kb.append([InlineKeyboardButton(f"🌐 {cat.upper()} - {price} BDT ({count} PCS)", callback_data=f"buyprx_{cat}")])
+    await update.message.reply_text("🌐 SELECT PROXY PACKAGE:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def buy_proxy_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cat = query.data.split("_")[1]
+    user_id = query.from_user.id
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, price, ip, port, username, password FROM proxy_products WHERE category = ? AND status = "AVAILABLE" LIMIT 1', (cat,))
+    row = cursor.fetchone()
+    
+    if not row:
+        await query.edit_message_text("❌ OUT OF STOCK!")
+        conn.close()
+        return
+        
+    pid, price, ip, port, uname, pwd = row
+    bal = get_user_balance(user_id)
+    if bal < price:
+        await query.edit_message_text(f"❌ INSUFFICIENT BALANCE!\nPRICE: `{price}` BDT\nYOUR BALANCE: `{bal}` BDT", parse_mode="Markdown")
+        conn.close()
+        return
+        
+    update_user_balance(user_id, -price)
+    
+    # Mark proxy as SOLD
+    cursor.execute('UPDATE proxy_products SET status = "SOLD" WHERE id = ?', (pid,))
+    cursor.execute('INSERT INTO sales_history (item_type, name, price) VALUES ("PROXY", ?, ?)', (cat, price))
+    conn.commit()
+    conn.close()
+    
+    user_pass_str = f"⭐ USER: `{uname}`\n🔑 PASS: `{pwd}`\n" if uname else ""
+    
+    deliv = (
+        f"✅ **ORDER COMPLETED** ✨\n\n"
+        f"📦 PACKAGE: `{cat.upper()}`\n\n"
+        f"🌐 **YOUR PROXY DETAILS:**\n"
+        f"🌐 IP: `{ip}`\n"
+        f"⬆️ PORT: `{port}`\n"
+        f"{user_pass_str}\n"
+        f"THANK YOU FOR YOUR PURCHASE!"
+    )
+    await query.edit_message_text(deliv, parse_mode="Markdown")
+
+# --- OTHER FUNCTIONS & SETUP ---
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -195,9 +384,8 @@ async def manage_vpn_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     kb = []
     for (vpn_name,) in vpn_items:
-        v_upper = vpn_name.upper()
         kb.append([
-            InlineKeyboardButton(f"🛡️ {v_upper}", callback_data=f"infovpn_{vpn_name}"),
+            InlineKeyboardButton(f"🛡️ {vpn_name.upper()}", callback_data=f"infovpn_{vpn_name}"),
             InlineKeyboardButton("✏️ EDIT", callback_data=f"editvpn_menu_{vpn_name}")
         ])
         
@@ -255,7 +443,7 @@ async def edit_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute('UPDATE vpn_products SET price = ? WHERE name = ?', (vpn_name,))
+        cursor.execute('UPDATE vpn_products SET price = ? WHERE name = ?', (new_price, vpn_name))
         conn.commit()
         conn.close()
         
@@ -279,29 +467,6 @@ async def delete_vpn_product(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(f"🗑️ VPN `{vpn_name}` DELETED SUCCESSFULLY!", parse_mode="Markdown")
 
 # --- EDIT PROXY SYSTEM ---
-async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('SELECT DISTINCT category FROM proxy_products')
-    proxy_items = cursor.fetchall()
-    conn.close()
-
-    kb = []
-    for (prx_name,) in proxy_items:
-        p_upper = prx_name.upper()
-        kb.append([
-            InlineKeyboardButton(f"🌐 {p_upper}", callback_data=f"infoprx_{prx_name}"),
-            InlineKeyboardButton("✏️ EDIT", callback_data=f"editprx_menu_{prx_name}")
-        ])
-        
-    kb.append([InlineKeyboardButton("➕ ADD NEW PROXY STOCK", callback_data="admin_add_proxy")])
-    kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
-    
-    await query.edit_message_text("⚙️ PROXY STOCK MANAGEMENT PANEL:", reply_markup=InlineKeyboardMarkup(kb))
-
 async def prx_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -310,7 +475,7 @@ async def prx_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
         [InlineKeyboardButton("✏️ CHANGE NAME", callback_data=f"prx_cname_{prx_name}")],
         [InlineKeyboardButton("💵 CHANGE PRICE", callback_data=f"prx_cprice_{prx_name}")],
-        [InlineKeyboardButton("❌ DELETE PRODUCT", callback_data=f"prx_del_{prx_name}")],
+        [InlineKeyboardButton("❌ DELETE ALL STOCK", callback_data=f"prx_del_{prx_name}")],
         [InlineKeyboardButton("🔙 BACK", callback_data="admin_manage_proxy")]
     ]
     await query.edit_message_text(f"✏️ EDITING PROXY: {prx_name.upper()}\nSELECT AN OPTION:", reply_markup=InlineKeyboardMarkup(kb))
@@ -396,7 +561,6 @@ async def admin_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     ]
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-# SETTINGS HANDLERS
 async def set_bkash_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.edit_message_text("📞 ENTER NEW BKASH NUMBER:")
@@ -464,8 +628,6 @@ async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
-    # depmeth_BKASH থেকে BKASH কে বের করা
     method = query.data.split("_")[1]
     context.user_data['dep_method'] = method
     
@@ -505,7 +667,7 @@ async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     method = context.user_data.get('dep_method', 'N/A')
     amount = context.user_data.get('dep_amount', 0)
     
-    await update.message.reply_text("⏳ DEPOSIT REQUEST CREATED! WAIT FOR 5-10 MINUTES FOR VERIFICATION.", reply_markup=get_main_keyboard(user.id))
+    await update.message.reply_text("⏳ DEPOSIT REQUEST CREATED! WAIT FOR VERIFICATION.", reply_markup=get_main_keyboard(user.id))
     
     admin_kb = [[InlineKeyboardButton("✅ APPROVE", callback_data=f"depapp_app_{user.id}_{amount}"), InlineKeyboardButton("❌ REJECT", callback_data=f"depapp_rej_{user.id}_{amount}")]]
     await context.bot.send_photo(
@@ -530,65 +692,7 @@ async def dep_approval_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_caption(caption=f"{query.message.caption}\n\n❌ REJECTED")
         await context.bot.send_message(uid, "❌ DEPOSIT REJECTED!")
 
-# --- PROXY STORE & DELIVERY ---
-async def show_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('SELECT category, price, COUNT(*) FROM proxy_products GROUP BY category')
-    items = cursor.fetchall()
-    conn.close()
-    
-    if not items:
-        await update.message.reply_text("❌ NO PROXY STOCK AVAILABLE!")
-        return
-        
-    kb = []
-    for cat, price, count in items:
-        kb.append([InlineKeyboardButton(f"{cat.upper()} - {price} BDT ({count} PCS)", callback_data=f"buyprx_{cat}")])
-    await update.message.reply_text("🌐 SELECT PROXY PACKAGE:", reply_markup=InlineKeyboardMarkup(kb))
-
-async def buy_proxy_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    cat = query.data.split("_")[1]
-    user_id = query.from_user.id
-    
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, price, ip, port, username, password FROM proxy_products WHERE category = ? LIMIT 1', (cat,))
-    row = cursor.fetchone()
-    
-    if not row:
-        await query.edit_message_text("❌ OUT OF STOCK!")
-        conn.close()
-        return
-        
-    pid, price, ip, port, uname, pwd = row
-    bal = get_user_balance(user_id)
-    if bal < price:
-        await query.edit_message_text(f"❌ INSUFFICIENT BALANCE!\nPRICE: `{price}` BDT\nYOUR BALANCE: `{bal}` BDT", parse_mode="Markdown")
-        conn.close()
-        return
-        
-    update_user_balance(user_id, -price)
-    cursor.execute('DELETE FROM proxy_products WHERE id = ?', (pid,))
-    cursor.execute('INSERT INTO sales_history (item_type, name, price) VALUES ("PROXY", ?, ?)', (cat, price))
-    conn.commit()
-    conn.close()
-    
-    deliv = (
-        f"✅ ORDER COMPLETED ✨\n\n"
-        f"📦 PACKAGE: PROXY ~ IP ➜ {cat.upper()}\n\n"
-        f"🌐 YOUR PRODUCT DETAILS: ✨\n\n"
-        f"🌐 IP: `{ip}`\n"
-        f"⬆️ PORT: `{port}`\n"
-        f"⭐ USER: `{uname}`\n"
-        f"🔑 PASS: `{pwd}`\n\n"
-        f"THANK YOU FOR YOUR PURCHASE!"
-    )
-    await query.edit_message_text(deliv, parse_mode="Markdown")
-
-# --- VPN STORE & DELIVERY ---
+# --- VPN STORE & MANUAL DELIVERY ---
 async def start_vpn_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
         [InlineKeyboardButton("📅 3 DAYS", callback_data="vpndays_3"), InlineKeyboardButton("📅 7 DAYS", callback_data="vpndays_7")],
@@ -676,7 +780,6 @@ async def finalize_vpn_order(update, context, qty, query=None):
     await context.bot.send_message(ADMIN_ID, admin_req, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     return ConversationHandler.END
 
-# --- ADMIN MANUAL DELIVER ---
 async def start_admin_deliver(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -694,45 +797,6 @@ async def admin_deliver_received(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("✅ PRODUCT SENT TO USER SUCCESSFULLY!")
     except Exception as e:
         await update.message.reply_text(f"❌ ERROR SENDING MESSAGE: {e}")
-    return ConversationHandler.END
-
-# --- ADD STOCK ---
-async def start_add_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("🌐 ENTER PROXY NAME:")
-    return ADD_PROXY_NAME
-
-async def add_proxy_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['stk_prx_name'] = update.message.text.strip().upper()
-    await update.message.reply_text("💵 ENTER PRICE PER PROXY (BDT):")
-    return ADD_PROXY_PRICE
-
-async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        context.user_data['stk_prx_price'] = float(update.message.text.strip())
-        await update.message.reply_text("📝 SEND PROXIES LINE BY LINE:\nFORMAT: IP:PORT:USERNAME:PASSWORD")
-        return ADD_PROXY_ITEMS
-    except ValueError:
-        await update.message.reply_text("❌ INVALID PRICE!")
-        return ADD_PROXY_PRICE
-
-async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lines = update.message.text.strip().split('\n')
-    name = context.user_data.get('stk_prx_name')
-    price = context.user_data.get('stk_prx_price')
-    
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    added = 0
-    for line in lines:
-        parts = line.strip().split(':')
-        if len(parts) == 4:
-            cursor.execute('INSERT INTO proxy_products (category, price, ip, port, username, password) VALUES (?, ?, ?, ?, ?, ?)', (name, price, parts[0], parts[1], parts[2], parts[3]))
-            added += 1
-    conn.commit()
-    conn.close()
-    await update.message.reply_text(f"✅ ADDED {added} PROXIES TO STOCK!", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
 async def start_add_vpn(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -867,9 +931,7 @@ def main():
     
     # CONVERSATIONS
     dep_conv = ConversationHandler(
-        entry_points=[
-            MessageHandler(filters.Regex("^(💳 DEPOSIT)$"), deposit_start)
-        ],
+        entry_points=[MessageHandler(filters.Regex("^(💳 DEPOSIT)$"), deposit_start)],
         states={
             WAITING_AMOUNT: [
                 CallbackQueryHandler(dep_method_selected, pattern="^depmeth_"),
@@ -885,6 +947,18 @@ def main():
         allow_reentry=True
     )
     
+    add_prx_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_add_proxy, pattern="^admin_add_proxy$")],
+        states={
+            ADD_PROXY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_name_rec)],
+            ADD_PROXY_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_price_rec)],
+            ADD_PROXY_ITEMS: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_items_rec)]
+        },
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
+    )
+
     vpn_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(vpn_qty_process, pattern="^vpnqty_")],
         states={VPN_QTY_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, vpn_custom_qty_received)]},
@@ -896,18 +970,6 @@ def main():
     admin_deliver_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_admin_deliver, pattern="^delivvpn_")],
         states={ADMIN_VPN_DELIVER: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_deliver_received)]},
-        fallbacks=fallback_buttons + [CommandHandler("start", start)],
-        per_message=False,
-        allow_reentry=True
-    )
-    
-    add_prx_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_add_proxy, pattern="^admin_add_proxy$")],
-        states={
-            ADD_PROXY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_name_rec)],
-            ADD_PROXY_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_price_rec)],
-            ADD_PROXY_ITEMS: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_items_rec)]
-        },
         fallbacks=fallback_buttons + [CommandHandler("start", start)],
         per_message=False,
         allow_reentry=True
@@ -926,9 +988,7 @@ def main():
     )
 
     p2p_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(p2p_sell_method_rec, pattern="^p2psell_")
-        ],
+        entry_points=[CallbackQueryHandler(p2p_sell_method_rec, pattern="^p2psell_")],
         states={
             P2P_SELL_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, p2p_number_rec)],
             P2P_SELL_PROOF: [
@@ -1002,9 +1062,9 @@ def main():
     app.add_handler(CommandHandler("admin", admin_panel))
     
     app.add_handler(dep_conv)
+    app.add_handler(add_prx_conv)
     app.add_handler(vpn_conv)
     app.add_handler(admin_deliver_conv)
-    app.add_handler(add_prx_conv)
     app.add_handler(add_vpn_conv)
     app.add_handler(p2p_conv)
     app.add_handler(broadcast_conv)
