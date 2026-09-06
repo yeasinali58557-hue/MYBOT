@@ -9,7 +9,7 @@ from telegram.ext import (
 # Logging Setup
 logging.basicConfig(level=logging.INFO)
 
-# Configs - Updated Token
+# Configs - Updated Token & Admin ID
 TOKEN = "8733585059:AAE3XL0aHVQ2gdw3BAm6RKkMSZeDXq8pe6g"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
