@@ -617,7 +617,7 @@ async def set_trc20_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ TRC20 ADDRESS UPDATED!", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
-# --- DEPOSIT SYSTEM (FIXED BUG) ---
+# --- DEPOSIT SYSTEM ---
 async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
         [InlineKeyboardButton("💗 BKASH", callback_data="depmeth_BKASH")],
@@ -680,7 +680,13 @@ async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     method = context.user_data.get('dep_method', 'N/A')
     amount = context.user_data.get('dep_amount', 0)
     
-    await update.message.reply_text("⏳ DEPOSIT REQUEST CREATED! WAIT FOR VERIFICATION.", reply_markup=get_main_keyboard(user.id))
+    # স্ক্রিনশট পাওয়ার পর ইউজারকে কনফার্মেশন ও ওয়েটিং মেসেজ প্রদান:
+    await update.message.reply_text(
+        "📩 **Payment Proof Received!**\n\n"
+        "⏳ আপনার ডিপোজিট রিকোয়েস্টটি সফলভাবে গ্রহণ করা হয়েছে। এডমিন আপনার ট্রানজেকশন ভেরিফাই করে দ্রুত ব্যালেন্স যুক্ত করে দেবে। দয়া করে কিছুক্ষণ অপেক্ষা করুন।", 
+        parse_mode="Markdown",
+        reply_markup=get_main_keyboard(user.id)
+    )
     
     admin_kb = [[InlineKeyboardButton("✅ APPROVE", callback_data=f"depapp_app_{user.id}_{amount}"), InlineKeyboardButton("❌ REJECT", callback_data=f"depapp_rej_{user.id}_{amount}")]]
     await context.bot.send_photo(
@@ -739,7 +745,6 @@ async def vpn_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for name, price in prods:
         kb.append([InlineKeyboardButton(f"{name.upper()} [{days} DAYS] - {price} BDT", callback_data=f"vpnpack_{name}_{price}")])
     
-    # 🔙 BACK BUTTON FOR VPN PACKAGES LIST
     kb.append([InlineKeyboardButton("🔙 Back", callback_data="vpn_main_back")])
     
     await query.edit_message_text(f"💥 VPN ({days} DAYS) 💥\n\nSELECT VPN SERVICE: 🛡️", reply_markup=InlineKeyboardMarkup(kb))
@@ -919,9 +924,11 @@ async def p2p_proof_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = context.user_data.get('p2p_number', 'N/A')
     net = context.user_data.get('p2p_net', 'N/A')
     
+    # স্ক্রিনশট পাওয়ার পর ইউজারকে কনফার্মেশন ও ওয়েটিং মেসেজ প্রদান:
     await update.message.reply_text(
-        "✅ YOUR P2P SELL REQUEST HAS BEEN RECEIVED SUCCESSFULLY!\n\n"
-        "⏳ PLEASE WAIT 10-30 MINUTES. ADMIN WILL VERIFY YOUR PAYMENT AND TRANSFER THE BDT AMOUNT TO YOUR ACCOUNT.",
+        "📩 **Screenshot Received!**\n\n"
+        "⏳ আপনার P2P সেল প্রুফটি সফলভাবে পাওয়া গেছে। এডমিন পেমেন্ট চেক করে ১০-৩০ মিনিটের মধ্যে টাকা পাঠিয়ে দেবে। ধন্যবাদ!",
+        parse_mode="Markdown",
         reply_markup=get_main_keyboard(user.id)
     )
     
