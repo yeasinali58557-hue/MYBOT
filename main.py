@@ -27,7 +27,7 @@ TOKEN = "8733585059:AAEOznbOV6FEDmP-qk_VFRSzyuthX93r0Js"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
 
-# CONVERSATION STATES
+# STATES
 WAITING_AMOUNT, WAITING_DEP_PROOF = 1, 2
 ADD_PROXY_NAME, ADD_PROXY_PRICE, ADD_PROXY_ITEMS = 3, 4, 5
 ADD_VPN_NAME, ADD_VPN_DAYS, ADD_VPN_PRICE = 6, 7, 8
@@ -35,6 +35,8 @@ P2P_SELL_NUMBER, P2P_SELL_PROOF = 9, 10
 VPN_QTY_CUSTOM, ADMIN_VPN_DELIVER = 11, 12
 SET_BKASH, SET_NAGAD, SET_BINANCE, SET_BEP20, SET_TRC20 = 13, 14, 15, 16, 17
 BROADCAST_MSG = 18
+EDIT_VPN_NAME_STATE, EDIT_VPN_PRICE_STATE = 19, 20
+EDIT_PRX_NAME_STATE, EDIT_PRX_PRICE_STATE = 21, 22
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -180,6 +182,198 @@ async def broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ BROADCAST COMPLETED!\n\nSUCCESS: {success}\nFAILED: {fail}", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
+# --- EDIT VPN SYSTEM ---
+async def manage_vpn_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT DISTINCT name FROM vpn_products')
+    vpn_items = cursor.fetchall()
+    conn.close()
+
+    kb = []
+    for (vpn_name,) in vpn_items:
+        v_upper = vpn_name.upper()
+        kb.append([
+            InlineKeyboardButton(f"🛡️ {v_upper}", callback_data=f"infovpn_{vpn_name}"),
+            InlineKeyboardButton("✏️ EDIT", callback_data=f"editvpn_menu_{vpn_name}")
+        ])
+        
+    kb.append([InlineKeyboardButton("➕ ADD NEW VPN PACK", callback_data="admin_add_vpn")])
+    kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
+    
+    await query.edit_message_text("⚙️ VPN STOCK MANAGEMENT PANEL:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def vpn_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    vpn_name = query.data.split("_")[2]
+    
+    kb = [
+        [InlineKeyboardButton("✏️ CHANGE NAME", callback_data=f"vpn_cname_{vpn_name}")],
+        [InlineKeyboardButton("💵 CHANGE PRICE", callback_data=f"vpn_cprice_{vpn_name}")],
+        [InlineKeyboardButton("❌ DELETE PRODUCT", callback_data=f"vpn_del_{vpn_name}")],
+        [InlineKeyboardButton("🔙 BACK", callback_data="admin_manage_vpn")]
+    ]
+    await query.edit_message_text(f"✏️ EDITING VPN: {vpn_name.upper()}\nSELECT AN OPTION:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def edit_vpn_name_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    vpn_name = query.data.split("_")[2]
+    context.user_data['old_vpn_name'] = vpn_name
+    await query.edit_message_text(f"✏️ ENTER NEW NAME FOR `{vpn_name}`:", parse_mode="Markdown")
+    return EDIT_VPN_NAME_STATE
+
+async def edit_vpn_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    new_name = update.message.text.strip().upper()
+    old_name = context.user_data.get('old_vpn_name')
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE vpn_products SET name = ? WHERE name = ?', (new_name, old_name))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(f"✅ VPN NAME CHANGED FROM `{old_name}` TO `{new_name}`!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+    return ConversationHandler.END
+
+async def edit_vpn_price_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    vpn_name = query.data.split("_")[2]
+    context.user_data['edit_vpn_price_target'] = vpn_name
+    await query.edit_message_text(f"💵 ENTER NEW PRICE FOR `{vpn_name}` (BDT):", parse_mode="Markdown")
+    return EDIT_VPN_PRICE_STATE
+
+async def edit_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        new_price = float(update.message.text.strip())
+        vpn_name = context.user_data.get('edit_vpn_price_target')
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE vpn_products SET price = ? WHERE name = ?', (new_price, vpn_name))
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(f"✅ VPN `{vpn_name}` PRICE UPDATED TO `{new_price}` BDT!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("❌ INVALID PRICE!")
+        return EDIT_VPN_PRICE_STATE
+
+async def delete_vpn_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    vpn_name = query.data.split("_")[2]
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM vpn_products WHERE name = ?', (vpn_name,))
+    conn.commit()
+    conn.close()
+    
+    await query.edit_message_text(f"🗑️ VPN `{vpn_name}` DELETED SUCCESSFULLY!", parse_mode="Markdown")
+
+# --- EDIT PROXY SYSTEM ---
+async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT DISTINCT category FROM proxy_products')
+    proxy_items = cursor.fetchall()
+    conn.close()
+
+    kb = []
+    for (prx_name,) in proxy_items:
+        p_upper = prx_name.upper()
+        kb.append([
+            InlineKeyboardButton(f"🌐 {p_upper}", callback_data=f"infoprx_{prx_name}"),
+            InlineKeyboardButton("✏️ EDIT", callback_data=f"editprx_menu_{prx_name}")
+        ])
+        
+    kb.append([InlineKeyboardButton("➕ ADD NEW PROXY STOCK", callback_data="admin_add_proxy")])
+    kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
+    
+    await query.edit_message_text("⚙️ PROXY STOCK MANAGEMENT PANEL:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def prx_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    prx_name = query.data.split("_")[2]
+    
+    kb = [
+        [InlineKeyboardButton("✏️ CHANGE NAME", callback_data=f"prx_cname_{prx_name}")],
+        [InlineKeyboardButton("💵 CHANGE PRICE", callback_data=f"prx_cprice_{prx_name}")],
+        [InlineKeyboardButton("❌ DELETE PRODUCT", callback_data=f"prx_del_{prx_name}")],
+        [InlineKeyboardButton("🔙 BACK", callback_data="admin_manage_proxy")]
+    ]
+    await query.edit_message_text(f"✏️ EDITING PROXY: {prx_name.upper()}\nSELECT AN OPTION:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def edit_prx_name_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    prx_name = query.data.split("_")[2]
+    context.user_data['old_prx_name'] = prx_name
+    await query.edit_message_text(f"✏️ ENTER NEW NAME FOR `{prx_name}`:", parse_mode="Markdown")
+    return EDIT_PRX_NAME_STATE
+
+async def edit_prx_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    new_name = update.message.text.strip().upper()
+    old_name = context.user_data.get('old_prx_name')
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE proxy_products SET category = ? WHERE category = ?', (new_name, old_name))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(f"✅ PROXY NAME CHANGED FROM `{old_name}` TO `{new_name}`!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+    return ConversationHandler.END
+
+async def edit_prx_price_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    prx_name = query.data.split("_")[2]
+    context.user_data['edit_prx_price_target'] = prx_name
+    await query.edit_message_text(f"💵 ENTER NEW PRICE FOR `{prx_name}` (BDT):", parse_mode="Markdown")
+    return EDIT_PRX_PRICE_STATE
+
+async def edit_prx_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        new_price = float(update.message.text.strip())
+        prx_name = context.user_data.get('edit_prx_price_target')
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE proxy_products SET price = ? WHERE category = ?', (new_price, prx_name))
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(f"✅ PROXY `{prx_name}` PRICE UPDATED TO `{new_price}` BDT!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("❌ INVALID PRICE!")
+        return EDIT_PRX_PRICE_STATE
+
+async def delete_prx_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    prx_name = query.data.split("_")[2]
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM proxy_products WHERE category = ?', (prx_name,))
+    conn.commit()
+    conn.close()
+    
+    await query.edit_message_text(f"🗑️ PROXY `{prx_name}` DELETED SUCCESSFULLY!", parse_mode="Markdown")
+
 # --- SETTINGS MENU ---
 async def admin_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -252,55 +446,6 @@ async def set_trc20_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_setting("TRC20", update.message.text.strip())
     await update.message.reply_text("✅ TRC20 ADDRESS UPDATED!", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
-
-# --- STOCK MANAGEMENT ---
-async def manage_vpn_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('SELECT DISTINCT name FROM vpn_products')
-    vpn_items = cursor.fetchall()
-    conn.close()
-
-    kb = []
-    for (vpn_name,) in vpn_items:
-        v_upper = vpn_name.upper()
-        kb.append([
-            InlineKeyboardButton(f"🛡️ {v_upper}", callback_data=f"info_vpn_{vpn_name}"),
-            InlineKeyboardButton("✏️ EDIT", callback_data=f"edit_vpn_{vpn_name}"),
-            InlineKeyboardButton("📅 DAYS", callback_data=f"days_vpn_{vpn_name}")
-        ])
-        
-    kb.append([InlineKeyboardButton("➕ ADD NEW VPN PACK", callback_data="admin_add_vpn")])
-    kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
-    
-    await query.edit_message_text("⚙️ VPN STOCK MANAGEMENT PANEL:", reply_markup=InlineKeyboardMarkup(kb))
-
-async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('SELECT DISTINCT category FROM proxy_products')
-    proxy_items = cursor.fetchall()
-    conn.close()
-
-    kb = []
-    for (prx_name,) in proxy_items:
-        p_upper = prx_name.upper()
-        kb.append([
-            InlineKeyboardButton(f"🌐 {p_upper}", callback_data=f"info_prx_{prx_name}"),
-            InlineKeyboardButton("✏️ EDIT", callback_data=f"edit_prx_{prx_name}"),
-            InlineKeyboardButton("📅 DAYS", callback_data=f"days_prx_{prx_name}")
-        ])
-        
-    kb.append([InlineKeyboardButton("➕ ADD NEW PROXY STOCK", callback_data="admin_add_proxy")])
-    kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
-    
-    await query.edit_message_text("⚙️ PROXY STOCK MANAGEMENT PANEL:", reply_markup=InlineKeyboardMarkup(kb))
 
 # --- DEPOSIT SYSTEM ---
 async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -625,7 +770,7 @@ async def add_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ INVALID PRICE!")
         return ADD_VPN_PRICE
 
-# --- P2P HANDLERS (FIXED) ---
+# --- P2P HANDLERS ---
 async def show_p2p_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🔄 P2P USDT TRADING ZONE\n\n📢 BUY USDT: 1 $ = 130 ৳\n📢 SELL USDT: 1 $ = 122 ৳"
     kb = [
@@ -682,8 +827,22 @@ async def p2p_proof_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = context.user_data.get('p2p_number', 'N/A')
     net = context.user_data.get('p2p_net', 'N/A')
     
-    await update.message.reply_text("⏳ P2P REQUEST SUBMITTED TO ADMIN!", reply_markup=get_main_keyboard(user.id))
-    admin_msg = f"🚨 NEW P2P SELL REQUEST\n\n👤 USER: {user.full_name.upper()} (`{user.id}`)\n💳 PAYMENT METHOD: {method}\n📞 RECEIVE NUMBER: `{number}`\n🌐 NETWORK: {net}"
+    # 1. USER GETS CONFIRMATION MESSAGE
+    await update.message.reply_text(
+        "✅ YOUR P2P SELL REQUEST HAS BEEN RECEIVED SUCCESSFULLY!\n\n"
+        "⏳ PLEASE WAIT 10-30 MINUTES. ADMIN WILL VERIFY YOUR PAYMENT AND TRANSFER THE BDT AMOUNT TO YOUR ACCOUNT.",
+        reply_markup=get_main_keyboard(user.id)
+    )
+    
+    # 2. FULL DETAILS SENT TO ADMIN
+    admin_msg = (
+        f"🚨 NEW P2P SELL REQUEST 🚨\n\n"
+        f"👤 USER: {user.full_name.upper()}\n"
+        f"🆔 USER ID: `{user.id}`\n"
+        f"💳 RECEIVE METHOD: {method}\n"
+        f"📞 RECEIVE NUMBER: `{number}`\n"
+        f"🌐 NETWORK: {net}"
+    )
     await context.bot.send_photo(ADMIN_ID, photo, caption=admin_msg, parse_mode="Markdown")
     return ConversationHandler.END
 
@@ -807,6 +966,34 @@ def main():
         allow_reentry=True
     )
 
+    edit_vpn_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(edit_vpn_name_start, pattern="^vpn_cname_"),
+            CallbackQueryHandler(edit_vpn_price_start, pattern="^vpn_cprice_")
+        ],
+        states={
+            EDIT_VPN_NAME_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_vpn_name_rec)],
+            EDIT_VPN_PRICE_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_vpn_price_rec)]
+        },
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
+    )
+
+    edit_prx_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(edit_prx_name_start, pattern="^prx_cname_"),
+            CallbackQueryHandler(edit_prx_price_start, pattern="^prx_cprice_")
+        ],
+        states={
+            EDIT_PRX_NAME_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_prx_name_rec)],
+            EDIT_PRX_PRICE_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_prx_price_rec)]
+        },
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
+    )
+
     # HANDLERS REGISTER
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
@@ -819,12 +1006,18 @@ def main():
     app.add_handler(p2p_conv)
     app.add_handler(broadcast_conv)
     app.add_handler(settings_conv)
+    app.add_handler(edit_vpn_conv)
+    app.add_handler(edit_prx_conv)
     
     # CALLBACKS
     app.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel_back$"))
     app.add_handler(CallbackQueryHandler(admin_settings_menu, pattern="^admin_settings$"))
     app.add_handler(CallbackQueryHandler(manage_vpn_stock, pattern="^admin_manage_vpn$"))
     app.add_handler(CallbackQueryHandler(manage_proxy_stock, pattern="^admin_manage_proxy$"))
+    app.add_handler(CallbackQueryHandler(vpn_edit_menu, pattern="^editvpn_menu_"))
+    app.add_handler(CallbackQueryHandler(prx_edit_menu, pattern="^editprx_menu_"))
+    app.add_handler(CallbackQueryHandler(delete_vpn_product, pattern="^vpn_del_"))
+    app.add_handler(CallbackQueryHandler(delete_prx_product, pattern="^prx_del_"))
     
     app.add_handler(CallbackQueryHandler(dep_approval_handler, pattern="^depapp_"))
     app.add_handler(CallbackQueryHandler(show_proxy_store, pattern="^buy_proxy$"))
