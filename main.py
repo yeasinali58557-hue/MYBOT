@@ -1,172 +1,106 @@
-import sqlite3
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, filters, ConversationHandler, ContextTypes
-)
+import logging
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-BOT_TOKEN = "8733585059:AAHw7igMJkclCmEtOU1y73T2C2n0hILhWx0"
-ADMIN_ID = 7753794493
+# Logging setup
+logging.basicConfig(level=logging.INFO)
 
-METHOD, AMOUNT, CONFIRM, TRXID = range(4)
+# Configs
+TOKEN = "8733585059:AAHw7igMJkclCmEtOU1y73T2C2n0hILhWx0"
+ADMIN_ID = 7753794493  # Replace with your actual Admin ID if different
+BINANCE_PAY_ID = "7753794493"  # Change to your actual Binance Pay ID / Number
 
-def init_db():
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            balance REAL DEFAULT 0.0
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-def get_or_create_user(user_id):
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT balance FROM users WHERE user_id = ?', (user_id,))
-    row = cursor.fetchone()
-    if not row:
-        cursor.execute('INSERT INTO users (user_id, balance) VALUES (?, ?)', (user_id, 0.0))
-        conn.commit()
-        balance = 0.0
-    else:
-        balance = row[0]
-    conn.close()
-    return balance
+# Reply Keyboard (Bottom Keyboard)
+KEYBOARD = [
+    ["🌐 BUY PROXY", "🛡 BUY VPN"],
+    ["💱 P2P (USDT BUY & SELL)"],
+    ["💰 DEPOSIT", "📜 HISTORY"]
+]
+reply_markup = ReplyKeyboardMarkup(KEYBOARD, resize_keyboard=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    balance = get_or_create_user(user_id)
-    
-    keyboard = [
-        [InlineKeyboardButton("🌐 BUY PROXY", callback_data='buy_proxy'), InlineKeyboardButton("🛡️ BUY VPN", callback_data='buy_vpn')],
-        [InlineKeyboardButton("💱 P2P (USDT BUY & SELL)", callback_data='p2p')],
-        [InlineKeyboardButton("💰 DEPOSIT", callback_data='deposit'), InlineKeyboardButton("📜 HISTORY", callback_data='history')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    msg = f"Welcome to the Store!\n\nUser ID: {user_id}\nBalance: {balance} BDT\n\nPlease select an option below:"
-    await update.message.reply_text(msg, reply_markup=reply_markup)
+    welcome_text = (
+        f"Welcome to the Store!\n\n"
+        f"User ID: `{user_id}`\n"
+        f"Balance: 0.0 BDT\n\n"
+        f"Please select an option below:"
+    )
+    await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=reply_markup)
 
-async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("💖 Bkash", callback_data='Bkash'), InlineKeyboardButton("🚀 Rocket", callback_data='Rocket')],
-        [InlineKeyboardButton("🔶 Binance", callback_data='Binance')],
-        [InlineKeyboardButton("❌ Close", callback_data='close')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ You are not authorized to access the admin panel.")
+        return
     
-    if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.message.reply_text("Select Payment Method:", reply_markup=reply_markup)
-    else:
-        await update.message.reply_text("Select Payment Method:", reply_markup=reply_markup)
-        
-    return METHOD
+    admin_text = (
+        "👑 **ADMIN PANEL**\n\n"
+        "Welcome Admin! Select an action:"
+    )
+    keyboard = [
+        [InlineKeyboardButton("➕ Add Balance", callback_data="admin_add_bal")],
+        [InlineKeyboardButton("📊 User Stats", callback_data="admin_stats")]
+    ]
+    await update.message.reply_text(admin_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    
+    if text == "💰 DEPOSIT":
+        deposit_keyboard = [
+            [InlineKeyboardButton("🟡 Binance Pay", callback_data="dep_binance")],
+            [InlineKeyboardButton("📱 bKash / Nagad", callback_data="dep_mfs")]
+        ]
+        await update.message.reply_text(
+            "💳 **Select Payment Method:**", 
+            parse_mode="Markdown", 
+            reply_markup=InlineKeyboardMarkup(deposit_keyboard)
+        )
+    elif text == "🌐 BUY PROXY":
+        await update.message.reply_text("Proxy catalog coming soon!")
+    elif text == "🛡 BUY VPN":
+        await update.message.reply_text("VPN catalog coming soon!")
+    elif text == "💱 P2P (USDT BUY & SELL)":
+        await update.message.reply_text("P2P trading desk coming soon!")
+    elif text == "📜 HISTORY":
+        await update.message.reply_text("No transaction history found.")
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    if query.data == 'close':
-        await query.message.delete()
-        return ConversationHandler.END
+    if query.data == "dep_binance":
+        # Delete/Edit old message and show new message with copyable ID
+        binance_text = (
+            "🟡 **Binance Deposit**\n\n"
+            f"Send payment to Binance Pay ID:\n`{BINANCE_PAY_ID}`\n\n"
+            "*(Tap on the number above to copy)*\n\n"
+            "After sending, submit transaction proof to Admin."
+        )
+        back_keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back_deposit")]]
+        await query.edit_message_text(binance_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(back_keyboard))
         
-    context.user_data['method'] = query.data
-    number = "01967922602"
-    context.user_data['number'] = number
-    
-    msg = (
-        f"📊 Method: {query.data}\n"
-        f"🏷️ Send To: {number}\n\n"
-        f"💲 Enter Amount (BDT):"
-    )
-    await query.message.reply_text(msg)
-    return AMOUNT
+    elif query.data == "back_deposit":
+        deposit_keyboard = [
+            [InlineKeyboardButton("🟡 Binance Pay", callback_data="dep_binance")],
+            [InlineKeyboardButton("📱 bKash / Nagad", callback_data="dep_mfs")]
+        ]
+        await query.edit_message_text(
+            "💳 **Select Payment Method:**", 
+            parse_mode="Markdown", 
+            reply_markup=InlineKeyboardMarkup(deposit_keyboard)
+        )
 
-async def amount_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    amount = update.message.text
-    context.user_data['amount'] = amount
-    method = context.user_data['method']
-    number = context.user_data['number']
-    
-    keyboard = [
-        [InlineKeyboardButton("✅ Confirm", callback_data='confirm_deposit'), 
-         InlineKeyboardButton("🛑 Cancel", callback_data='cancel_deposit')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    summary = (
-        f"🧾 Recharge Summary\n\n"
-        f"Method: {method}\n"
-        f"🧔 Send To: {number}\n"
-        f"Amount: {amount}.0 ৳\n"
-        f"💵 Converted: {amount}.0 ৳\n\n"
-        f"Do you want to confirm this request?"
-    )
-    await update.message.reply_text(summary, reply_markup=reply_markup)
-    return CONFIRM
-
-async def confirm_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == 'cancel_deposit':
-        await query.message.reply_text("Deposit Request Canceled.")
-        return ConversationHandler.END
-        
-    msg = "✉️ Please enter your Transaction ID (TrxID): 🌠"
-    await query.message.reply_text(msg)
-    return TRXID
-
-async def trxid_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    trx_id = update.message.text
-    amount = context.user_data.get('amount')
-    method = context.user_data.get('method')
-    
-    msg = (
-        "⏳ Checking your payment...\n"
-        "Please wait up to 1 minute. 🎁"
-    )
-    await update.message.reply_text(msg)
-    
-    admin_msg = (
-        f"🔔 New Deposit Request!\n\n"
-        f"User ID: {user_id}\n"
-        f"Method: {method}\n"
-        f"Amount: {amount} BDT\n"
-        f"TrxID: {trx_id}"
-    )
-    try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg)
-    except Exception as e:
-        print(f"Failed to send alert to admin: {e}")
-        
-    return ConversationHandler.END
-
-if __name__ == '__main__':
-    init_db()
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
-    deposit_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler('deposit', deposit_start),
-            CallbackQueryHandler(deposit_start, pattern='^deposit$')
-        ],
-        states={
-            METHOD: [CallbackQueryHandler(method_selected)],
-            AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, amount_entered)],
-            CONFIRM: [CallbackQueryHandler(confirm_deposit)],
-            TRXID: [MessageHandler(filters.TEXT & ~filters.COMMAND, trxid_entered)],
-        },
-        fallbacks=[]
-    )
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(deposit_handler)
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("Bot is running...")
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
