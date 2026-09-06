@@ -198,7 +198,7 @@ async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     conn.close()
     kb.append([InlineKeyboardButton("➕ ADD BULK PROXY STOCK", callback_data="admin_add_proxy")])
-    kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
+    kb.append([InlineKeyboardButton("🔙 Back", callback_data="admin_panel_back")])
     
     await query.edit_message_text(text_info, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -288,13 +288,23 @@ async def show_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
     
     if not items:
-        await update.message.reply_text("❌ NO PROXY STOCK AVAILABLE RIGHT NOW!")
+        text = "❌ NO PROXY STOCK AVAILABLE RIGHT NOW!"
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(text)
+        else:
+            await update.message.reply_text(text)
         return
         
     kb = []
     for cat, price, count in items:
         kb.append([InlineKeyboardButton(f"🌐 {cat.upper()} - {price} BDT ({count} PCS)", callback_data=f"buyprx_{cat}")])
-    await update.message.reply_text("🌐 SELECT PROXY PACKAGE:", reply_markup=InlineKeyboardMarkup(kb))
+    
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("🌐 SELECT PROXY PACKAGE:", reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await update.message.reply_text("🌐 SELECT PROXY PACKAGE:", reply_markup=InlineKeyboardMarkup(kb))
 
 async def buy_proxy_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -386,7 +396,7 @@ async def manage_vpn_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         
     kb.append([InlineKeyboardButton("➕ ADD NEW VPN PACK", callback_data="admin_add_vpn")])
-    kb.append([InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")])
+    kb.append([InlineKeyboardButton("🔙 Back", callback_data="admin_panel_back")])
     
     await query.edit_message_text("⚙️ VPN STOCK MANAGEMENT PANEL:", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -399,7 +409,7 @@ async def vpn_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("✏️ CHANGE NAME", callback_data=f"vpn_cname_{vpn_name}")],
         [InlineKeyboardButton("💵 CHANGE PRICE", callback_data=f"vpn_cprice_{vpn_name}")],
         [InlineKeyboardButton("❌ DELETE PRODUCT", callback_data=f"vpn_del_{vpn_name}")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="admin_manage_vpn")]
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_manage_vpn")]
     ]
     await query.edit_message_text(f"✏️ EDITING VPN: {vpn_name.upper()}\nSELECT AN OPTION:", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -472,7 +482,7 @@ async def prx_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("✏️ CHANGE NAME", callback_data=f"prx_cname_{prx_name}")],
         [InlineKeyboardButton("💵 CHANGE PRICE", callback_data=f"prx_cprice_{prx_name}")],
         [InlineKeyboardButton("❌ DELETE ALL STOCK", callback_data=f"prx_del_{prx_name}")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="admin_manage_proxy")]
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_manage_proxy")]
     ]
     await query.edit_message_text(f"✏️ EDITING PROXY: {prx_name.upper()}\nSELECT AN OPTION:", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -553,7 +563,7 @@ async def admin_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("EDIT BKASH", callback_data="set_bkash"), InlineKeyboardButton("EDIT NAGAD", callback_data="set_nagad")],
         [InlineKeyboardButton("EDIT BINANCE ID", callback_data="set_binance")],
         [InlineKeyboardButton("EDIT BEP20 ADDRESS", callback_data="set_bep20"), InlineKeyboardButton("EDIT TRC20 ADDRESS", callback_data="set_trc20")],
-        [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_panel_back")]
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_panel_back")]
     ]
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -701,7 +711,12 @@ async def start_vpn_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📅 3 DAYS", callback_data="vpndays_3"), InlineKeyboardButton("📅 7 DAYS", callback_data="vpndays_7")],
         [InlineKeyboardButton("📅 14 DAYS", callback_data="vpndays_14"), InlineKeyboardButton("📅 30 DAYS", callback_data="vpndays_30")]
     ]
-    await update.message.reply_text("💥 VPN PACKAGES 💥\n\nSELECT DURATION: 🛡️", reply_markup=InlineKeyboardMarkup(kb))
+    
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("💥 VPN PACKAGES 💥\n\nSELECT DURATION: 🛡️", reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await update.message.reply_text("💥 VPN PACKAGES 💥\n\nSELECT DURATION: 🛡️", reply_markup=InlineKeyboardMarkup(kb))
 
 async def vpn_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -715,13 +730,18 @@ async def vpn_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prods = cursor.fetchall()
     conn.close()
     
+    kb = []
     if not prods:
-        await query.edit_message_text(f"❌ NO VPN PACKS AVAILABLE FOR {days} DAYS!")
+        kb.append([InlineKeyboardButton("🔙 Back", callback_data="vpn_main_back")])
+        await query.edit_message_text(f"❌ NO VPN PACKS AVAILABLE FOR {days} DAYS!", reply_markup=InlineKeyboardMarkup(kb))
         return
         
-    kb = []
     for name, price in prods:
         kb.append([InlineKeyboardButton(f"{name.upper()} [{days} DAYS] - {price} BDT", callback_data=f"vpnpack_{name}_{price}")])
+    
+    # 🔙 BACK BUTTON FOR VPN PACKAGES LIST
+    kb.append([InlineKeyboardButton("🔙 Back", callback_data="vpn_main_back")])
+    
     await query.edit_message_text(f"💥 VPN ({days} DAYS) 💥\n\nSELECT VPN SERVICE: 🛡️", reply_markup=InlineKeyboardMarkup(kb))
 
 async def vpn_pack_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -730,13 +750,15 @@ async def vpn_pack_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, name, price = query.data.split("_")
     context.user_data['buy_vpn_name'] = name
     context.user_data['buy_vpn_price'] = float(price)
+    days = context.user_data.get('buy_vpn_days')
     
     kb = [
         [InlineKeyboardButton("1 PCS", callback_data="vpnqty_1"), InlineKeyboardButton("3 PCS", callback_data="vpnqty_3")],
         [InlineKeyboardButton("5 PCS", callback_data="vpnqty_5"), InlineKeyboardButton("10 PCS", callback_data="vpnqty_10")],
-        [InlineKeyboardButton("📝 ENTER QUANTITY", callback_data="vpnqty_custom")]
+        [InlineKeyboardButton("📝 ENTER QUANTITY", callback_data="vpnqty_custom")],
+        [InlineKeyboardButton("🔙 Back", callback_data=f"vpndays_{days}")]
     ]
-    await query.edit_message_text(f"💥 VPN 💥 {name.upper()} [{context.user_data['buy_vpn_days']} DAYS]\n\nHOW MANY PIECES DO YOU WANT TO BUY? 🛡️", reply_markup=InlineKeyboardMarkup(kb))
+    await query.edit_message_text(f"💥 VPN 💥 {name.upper()} [{days} DAYS]\n\nHOW MANY PIECES DO YOU WANT TO BUY? 🛡️", reply_markup=InlineKeyboardMarkup(kb))
 
 async def vpn_qty_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1077,6 +1099,7 @@ def main():
     
     # CALLBACKS
     app.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel_back$"))
+    app.add_handler(CallbackQueryHandler(start_vpn_flow, pattern="^vpn_main_back$"))
     app.add_handler(CallbackQueryHandler(admin_settings_menu, pattern="^admin_settings$"))
     app.add_handler(CallbackQueryHandler(manage_vpn_stock, pattern="^admin_manage_vpn$"))
     app.add_handler(CallbackQueryHandler(manage_proxy_stock, pattern="^admin_manage_proxy$"))
