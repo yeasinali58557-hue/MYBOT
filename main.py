@@ -255,7 +255,7 @@ async def edit_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute('UPDATE vpn_products SET price = ? WHERE name = ?', (new_price, vpn_name))
+        cursor.execute('UPDATE vpn_products SET price = ? WHERE name = ?', (vpn_name,))
         conn.commit()
         conn.close()
         
@@ -450,19 +450,22 @@ async def set_trc20_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- DEPOSIT SYSTEM ---
 async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
-        [InlineKeyboardButton("💗 BKASH", callback_data="dep_BKASH")],
-        [InlineKeyboardButton("🧡 NAGAD", callback_data="dep_NAGAD")],
-        [InlineKeyboardButton("🟡 BINANCE", callback_data="dep_BINANCE")]
+        [InlineKeyboardButton("💗 BKASH", callback_data="depmeth_BKASH")],
+        [InlineKeyboardButton("🧡 NAGAD", callback_data="depmeth_NAGAD")],
+        [InlineKeyboardButton("🟡 BINANCE", callback_data="depmeth_BINANCE")]
     ]
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
     else:
         await update.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
+    return WAITING_AMOUNT
 
 async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
+    # depmeth_BKASH থেকে BKASH কে বের করা
     method = query.data.split("_")[1]
     context.user_data['dep_method'] = method
     
@@ -473,7 +476,7 @@ async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         amount = float(update.message.text.strip())
-        method = context.user_data.get('dep_method')
+        method = context.user_data.get('dep_method', 'BKASH')
         context.user_data['dep_amount'] = amount
         
         warn_text = ""
@@ -499,8 +502,8 @@ async def dep_confirm_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1].file_id
-    method = context.user_data.get('dep_method')
-    amount = context.user_data.get('dep_amount')
+    method = context.user_data.get('dep_method', 'N/A')
+    amount = context.user_data.get('dep_amount', 0)
     
     await update.message.reply_text("⏳ DEPOSIT REQUEST CREATED! WAIT FOR 5-10 MINUTES FOR VERIFICATION.", reply_markup=get_main_keyboard(user.id))
     
@@ -827,14 +830,12 @@ async def p2p_proof_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = context.user_data.get('p2p_number', 'N/A')
     net = context.user_data.get('p2p_net', 'N/A')
     
-    # 1. USER GETS CONFIRMATION MESSAGE
     await update.message.reply_text(
         "✅ YOUR P2P SELL REQUEST HAS BEEN RECEIVED SUCCESSFULLY!\n\n"
         "⏳ PLEASE WAIT 10-30 MINUTES. ADMIN WILL VERIFY YOUR PAYMENT AND TRANSFER THE BDT AMOUNT TO YOUR ACCOUNT.",
         reply_markup=get_main_keyboard(user.id)
     )
     
-    # 2. FULL DETAILS SENT TO ADMIN
     admin_msg = (
         f"🚨 NEW P2P SELL REQUEST 🚨\n\n"
         f"👤 USER: {user.full_name.upper()}\n"
@@ -867,11 +868,13 @@ def main():
     # CONVERSATIONS
     dep_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(dep_method_selected, pattern="^dep_"), 
             MessageHandler(filters.Regex("^(💳 DEPOSIT)$"), deposit_start)
         ],
         states={
-            WAITING_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, dep_amount_received)],
+            WAITING_AMOUNT: [
+                CallbackQueryHandler(dep_method_selected, pattern="^depmeth_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, dep_amount_received)
+            ],
             WAITING_DEP_PROOF: [
                 CallbackQueryHandler(dep_confirm_clicked, pattern="^dep_confirm$"),
                 MessageHandler(filters.PHOTO, dep_proof_received)
