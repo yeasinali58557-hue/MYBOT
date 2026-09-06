@@ -121,6 +121,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
     return ConversationHandler.END
 
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await handle_buttons(update, context)
+    return ConversationHandler.END
+
 # --- ADMIN PANEL ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -299,7 +303,11 @@ async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🧡 NAGAD", callback_data="dep_NAGAD")],
         [InlineKeyboardButton("🟡 BINANCE", callback_data="dep_BINANCE")]
     ]
-    await update.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await update.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
 
 async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -312,7 +320,6 @@ async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
     return WAITING_AMOUNT
 
 async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     try:
         amount = float(update.message.text.strip())
         method = context.user_data.get('dep_method')
@@ -483,7 +490,6 @@ async def vpn_qty_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await finalize_vpn_order(update, context, qty, query)
 
 async def vpn_custom_qty_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     try:
         qty = int(update.message.text.strip())
         return await finalize_vpn_order(update, context, qty)
@@ -526,7 +532,6 @@ async def start_admin_deliver(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ADMIN_VPN_DELIVER
 
 async def admin_deliver_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     target_uid = context.user_data.get('deliver_target_uid')
     details = update.message.text
     
@@ -545,13 +550,11 @@ async def start_add_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_PROXY_NAME
 
 async def add_proxy_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     context.user_data['stk_prx_name'] = update.message.text.strip().upper()
     await update.message.reply_text("💵 ENTER PRICE PER PROXY (BDT):")
     return ADD_PROXY_PRICE
 
 async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     try:
         context.user_data['stk_prx_price'] = float(update.message.text.strip())
         await update.message.reply_text("📝 SEND PROXIES LINE BY LINE:\nFORMAT: IP:PORT:USERNAME:PASSWORD")
@@ -561,7 +564,6 @@ async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ADD_PROXY_PRICE
 
 async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     lines = update.message.text.strip().split('\n')
     name = context.user_data.get('stk_prx_name')
     price = context.user_data.get('stk_prx_price')
@@ -586,13 +588,11 @@ async def start_add_vpn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_VPN_NAME
 
 async def add_vpn_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     context.user_data['stk_vpn_name'] = update.message.text.strip().upper()
     await update.message.reply_text("📅 ENTER DAYS (E.G. 3, 7, 14, 30):")
     return ADD_VPN_DAYS
 
 async def add_vpn_days_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     try:
         context.user_data['stk_vpn_days'] = int(update.message.text.strip())
         await update.message.reply_text("💵 ENTER PRICE (BDT):")
@@ -602,7 +602,6 @@ async def add_vpn_days_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_VPN_DAYS
 
 async def add_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     try:
         price = float(update.message.text.strip())
         name = context.user_data.get('stk_vpn_name')
@@ -644,7 +643,6 @@ async def p2p_sell_method_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
     return P2P_SELL_NUMBER
 
 async def p2p_number_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text in MENU_BUTTONS: return ConversationHandler.END
     context.user_data['p2p_number'] = update.message.text.strip()
     kb = [
         [InlineKeyboardButton("🟡 BINANCE PAY ID", callback_data="p2pnet_BINANCE")],
@@ -698,6 +696,8 @@ def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
+
+    fallback_buttons = [MessageHandler(filters.Regex("^(🛡️ BUY VPN|🌐 BUY PROXY|🔄 P2P \(USDT BUY & SELL\)|💳 DEPOSIT|💰 BALANCE|👑 ADMIN PANEL)$"), cancel_conversation)]
     
     # CONVERSATIONS
     dep_conv = ConversationHandler(
@@ -712,19 +712,25 @@ def main():
                 MessageHandler(filters.PHOTO, dep_proof_received)
             ]
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
     )
     
     vpn_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(vpn_qty_process, pattern="^vpnqty_")],
         states={VPN_QTY_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, vpn_custom_qty_received)]},
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
     )
     
     admin_deliver_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_admin_deliver, pattern="^delivvpn_")],
         states={ADMIN_VPN_DELIVER: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_deliver_received)]},
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
     )
     
     add_prx_conv = ConversationHandler(
@@ -734,7 +740,9 @@ def main():
             ADD_PROXY_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_price_rec)],
             ADD_PROXY_ITEMS: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_proxy_items_rec)]
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
     )
 
     add_vpn_conv = ConversationHandler(
@@ -744,7 +752,9 @@ def main():
             ADD_VPN_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_vpn_days_rec)],
             ADD_VPN_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_vpn_price_rec)]
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
     )
 
     p2p_conv = ConversationHandler(
@@ -756,7 +766,9 @@ def main():
             WAITING_P2P_CONFIRM: [CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm$")],
             P2P_SELL_PROOF: [MessageHandler(filters.PHOTO, p2p_proof_rec)]
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
     )
 
     settings_conv = ConversationHandler(
@@ -774,7 +786,9 @@ def main():
             SET_BEP20: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_bep20_rec)],
             SET_TRC20: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_trc20_rec)]
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
     )
 
     # HANDLERS REGISTER
