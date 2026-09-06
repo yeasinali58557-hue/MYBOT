@@ -91,7 +91,7 @@ def get_main_keyboard(user_id):
         kb.append(["👑 ADMIN PANEL"])
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-# --- START COMMAND (CLEANED) ---
+# --- START COMMAND ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     get_user_balance(user.id)
@@ -442,7 +442,7 @@ async def admin_deliver_received(update: Update, context: ContextTypes.DEFAULT_T
 async def start_add_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🌐 ENTER PROXY NAME (E.G. `OWL PROXY`):")
+    await query.edit_message_text("🌐 ENTER PROXY NAME:")
     return ADD_PROXY_NAME
 
 async def add_proxy_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,7 +483,7 @@ async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def start_add_vpn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🛡️ ENTER VPN NAME (E.G. `PROTON`):")
+    await query.edit_message_text("🛡️ ENTER VPN NAME:")
     return ADD_VPN_NAME
 
 async def add_vpn_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
