@@ -131,6 +131,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"SELECT AN OPTION FROM BELOW TO CONTINUE:"
     )
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+    return ConversationHandler.END
 
 # --- ADMIN PANEL ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -141,10 +142,10 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("➕ ADD PROXY STOCK", callback_data="admin_add_PROXY"), InlineKeyboardButton("➕ ADD VPN STOCK", callback_data="admin_add_VPN")],
         [InlineKeyboardButton("📥 DEPOSIT REQUESTS", callback_data="admin_view_deposits")],
-        [InlineKeyboardButton("📥 SELL USDT REQUESTS", callback_data="admin_sell_usdt_req"), InlineKeyboardButton("🛒 BUY USDT REQUESTS", callback_data="admin_buy_usdt_req")],
         [InlineKeyboardButton("📢 BROADCAST NOTICE", callback_data="admin_broadcast")]
     ]
     await update.message.reply_text("👑 **ADMIN PANEL**\nCHOOSE AN ACTION:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    return ConversationHandler.END
 
 async def addbal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -164,6 +165,38 @@ async def addbal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     except Exception:
         await update.message.reply_text("❌ USAGE: `/addbal USER_ID AMOUNT`", parse_mode="Markdown")
+
+# --- ADMIN APPROVAL HANDLERS ---
+async def handle_deposit_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split("_")
+    action = data[1] # app or rej
+    target_user_id = int(data[2])
+    amount = float(data[3])
+    
+    if action == "app":
+        new_bal = update_user_balance(target_user_id, amount)
+        await query.edit_message_caption(caption=f"{query.message.caption or query.message.text}\n\n✅ **APPROVED BY ADMIN**", parse_mode="Markdown") if query.message.photo else await query.edit_message_text(f"{query.message.text}\n\n✅ **APPROVED BY ADMIN**", parse_mode="Markdown")
+        try:
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=f"🎉 **DEPOSIT APPROVED!**\n\nYOUR DEPOSIT OF `{amount} BDT` HAS BEEN APPROVED.\nCURRENT BALANCE: `{new_bal} BDT`",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+    elif action == "rej":
+        await query.edit_message_text(f"{query.message.text}\n\n❌ **REJECTED BY ADMIN**", parse_mode="Markdown")
+        try:
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=f"❌ **DEPOSIT REJECTED!**\n\nYOUR DEPOSIT OF `{amount} BDT` WAS REJECTED BY ADMIN.",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
 # --- ADMIN STOCK ADDITION FLOW ---
 async def start_add_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -263,9 +296,9 @@ async def method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     label_num = "NUMBER" if method != "BINANCE" else "ID"
     
     text = (
-        f"✅ **METHOD: {method}**  🔹\n"
+        f"✅ **METHOD: {method}**\n"
         f"📞 **{label_num}: `{number}`**\n\n"
-        f"💳 **ENTER AMOUNT:** ⚡"
+        f"💳 **ENTER DEPOSIT AMOUNT (BDT):**"
     )
     await query.edit_message_text(text, parse_mode="Markdown")
     return WAITING_AMOUNT
@@ -462,9 +495,9 @@ async def p2p_confirm_sent(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def p2p_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1].file_id
-    bdt_method = context.user_data.get('p2p_bdt_method')
-    bdt_number = context.user_data.get('p2p_number')
-    network = context.user_data.get('p2p_network')
+    bdt_method = context.user_data.get('p2p_bdt_method', 'N/A')
+    bdt_number = context.user_data.get('p2p_number', 'N/A')
+    network = context.user_data.get('p2p_network', 'N/A')
     
     await update.message.reply_text("⏳ **P2P SELL REQUEST SUBMITTED!** ADMIN WILL REVIEW AND SEND BDT SOON.", reply_markup=get_main_keyboard(user.id))
     
@@ -502,7 +535,7 @@ def main():
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # CONVERSATIONS
+    # DEPOSIT CONVERSATION
     deposit_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(method_selected, pattern="^method_"),
@@ -515,9 +548,10 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, trxid_received)
             ]
         },
-        fallbacks=[]
+        fallbacks=[CommandHandler("start", start)]
     )
     
+    # ADMIN STOCK CONVERSATION
     admin_stock_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_add_stock, pattern="^admin_add_")],
         states={
@@ -525,15 +559,17 @@ def main():
             ADD_STOCK_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_price_received)],
             ADD_STOCK_ITEMS: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_items_received)]
         },
-        fallbacks=[]
+        fallbacks=[CommandHandler("start", start)]
     )
     
+    # ADMIN BROADCAST CONVERSATION
     admin_bc_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_broadcast, pattern="^admin_broadcast$")],
         states={BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_broadcast)]},
-        fallbacks=[]
+        fallbacks=[CommandHandler("start", start)]
     )
     
+    # P2P SELL CONVERSATION
     p2p_sell_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(p2p_method_selected, pattern="^p2p_method_"),
@@ -543,22 +579,28 @@ def main():
             P2P_SELL_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, p2p_number_received)],
             P2P_SELL_PROOF: [MessageHandler(filters.PHOTO, p2p_proof_received)]
         },
-        fallbacks=[]
+        fallbacks=[CommandHandler("start", start)]
     )
     
+    # COMMANDS
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("addbal", addbal_cmd))
+    
+    # CONVERSATIONS
     app.add_handler(deposit_conv)
     app.add_handler(admin_stock_conv)
     app.add_handler(admin_bc_conv)
     app.add_handler(p2p_sell_conv)
     
+    # CALLBACK HANDLERS
+    app.add_handler(CallbackQueryHandler(handle_deposit_approval, pattern="^dep_"))
     app.add_handler(CallbackQueryHandler(process_buy_product, pattern="^buy_p_"))
     app.add_handler(CallbackQueryHandler(p2p_buy_info, pattern="^p2p_buy_info$"))
     app.add_handler(CallbackQueryHandler(p2p_sell_start, pattern="^p2p_sell_start$"))
     app.add_handler(CallbackQueryHandler(p2p_addr_selected, pattern="^p2p_addr_"))
     
+    # GENERAL MESSAGE HANDLER
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
     print("BOT IS RUNNING...")
