@@ -59,7 +59,7 @@ def update_user_balance(user_id, amount):
     conn.close()
     return new_bal
 
-# --- KEYBOARDS (Emoji Added) ---
+# --- KEYBOARDS ---
 MAIN_KEYBOARD = [
     ["🛡️ BUY VPN", "🌐 BUY PROXY"],
     ["🔄 P2P(USDT BUY & SELL)"],
@@ -134,10 +134,11 @@ async def method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = BKASH_NUMBER if method == "Bkash" else NAGAD_NUMBER if method == "Nagad" else BINANCE_ID
     label_num = "নাম্বার" if method != "Binance" else "আইডি"
     
+    # ২য় ছবির মতো বোল্ড ফন্ট এবং ইমোজি সেটআপ
     text = (
-        f"✅ মেথড: {method} ✨\n"
-        f"📞 {label_num}: `{number}` ✨\n\n"
-        f"💵 এবার অ্যামাউন্ট লিখুন:"
+        f"✅ **মেথড: {method}**  🔹\n"
+        f"📞 **{label_num}: {number}**\n\n"
+        f"💳 **এবার অ্যামাউন্ট লিখুন:** ⚡"
     )
     
     await query.edit_message_text(text, parse_mode="Markdown")
