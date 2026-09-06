@@ -28,7 +28,6 @@ logging.basicConfig(level=logging.INFO)
 TOKEN = "8733585059:AAE3XL0aHVQ2gdw3BAm6RKkMSZeDXq8pe6g"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
-REQUIRED_CHANNEL = "https://t.me/A_ToolsX"
 
 BKASH_NUMBER = "01869425239"
 NAGAD_NUMBER = "01869425239"
@@ -92,13 +91,12 @@ def get_main_keyboard(user_id):
         kb.append(["👑 ADMIN PANEL"])
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-# --- START ---
+# --- START (NO CHANNEL JOIN REQUIRED) ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     get_user_balance(user.id)
     
     welcome_msg = (
-        f"🚀 **To use this bot, you must join our channel:** {REQUIRED_CHANNEL}\n\n"
         f"👋 **WELCOME {user.first_name.upper()}!**\n\n"
         f"🆔 **ID:** `{user.id}`\n"
         f"💰 **BALANCE:** `{get_user_balance(user.id)} BDT`\n\n"
