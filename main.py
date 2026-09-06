@@ -1,10 +1,23 @@
 import logging
 import sqlite3
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
     MessageHandler, ContextTypes, ConversationHandler, filters
 )
+
+# --- DUMMY WEB SERVER FOR RENDER PORT BINDING ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_dummy_server():
+    server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
+    server.serve_forever()
 
 # Logging Setup
 logging.basicConfig(level=logging.INFO)
@@ -134,7 +147,6 @@ async def method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = BKASH_NUMBER if method == "Bkash" else NAGAD_NUMBER if method == "Nagad" else BINANCE_ID
     label_num = "নাম্বার" if method != "Binance" else "আইডি"
     
-    # ২য় ছবির মতো বোল্ড ফন্ট এবং ইমোজি সেটআপ
     text = (
         f"✅ **মেথড: {method}**  🔹\n"
         f"📞 **{label_num}: {number}**\n\n"
@@ -293,6 +305,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔄 P2P USDT Buy & Sell service coming soon!")
 
 def main():
+    # Start Dummy Web Server Thread
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+    
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
     
