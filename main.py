@@ -1,4 +1,5 @@
-import logging
+from keep_alive import keep_alive
+keep_alive() logging
 import sqlite3
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
