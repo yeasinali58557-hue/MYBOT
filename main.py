@@ -80,7 +80,7 @@ def update_user_balance(user_id, amount):
     conn.close()
     return new_bal
 
-# --- MAIN KEYBOARD (ALL UPPERCASE) ---
+# --- MAIN KEYBOARD ---
 def get_main_keyboard(user_id):
     kb = [
         ["🛡️ BUY VPN", "🌐 BUY PROXY"],
@@ -530,7 +530,7 @@ async def show_p2p_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def p2p_buy_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("💵 CONTACT ADMIN TO BUY USDT: @ADMINSUPPORT")
+    await query.edit_message_text("💵 CONTACT ADMIN TO BUY USDT")
 
 async def p2p_sell_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
