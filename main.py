@@ -626,7 +626,7 @@ async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
+        await update.callback_query.edit_message_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
     else:
         await update.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
     return WAITING_AMOUNT
@@ -644,7 +644,6 @@ async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     
-    # Check if user pressed a menu button instead of entering amount
     if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "🔄 P2P (USDT BUY & SELL)", "💳 DEPOSIT", "💰 BALANCE", "👑 ADMIN PANEL"]:
         await handle_buttons(update, context)
         return ConversationHandler.END
@@ -680,7 +679,6 @@ async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     method = context.user_data.get('dep_method', 'N/A')
     amount = context.user_data.get('dep_amount', 0)
     
-    # স্ক্রিনশট পাওয়ার পর ইউজারকে কনফার্মেশন ও ওয়েটিং মেসেজ প্রদান:
     await update.message.reply_text(
         "📩 **Payment Proof Received!**\n\n"
         "⏳ আপনার ডিপোজিট রিকোয়েস্টটি সফলভাবে গ্রহণ করা হয়েছে। এডমিন আপনার ট্রানজেকশন ভেরিফাই করে দ্রুত ব্যালেন্স যুক্ত করে দেবে। দয়া করে কিছুক্ষণ অপেক্ষা করুন।", 
@@ -924,7 +922,6 @@ async def p2p_proof_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = context.user_data.get('p2p_number', 'N/A')
     net = context.user_data.get('p2p_net', 'N/A')
     
-    # স্ক্রিনশট পাওয়ার পর ইউজারকে কনফার্মেশন ও ওয়েটিং মেসেজ প্রদান:
     await update.message.reply_text(
         "📩 **Screenshot Received!**\n\n"
         "⏳ আপনার P2P সেল প্রুফটি সফলভাবে পাওয়া গেছে। এডমিন পেমেন্ট চেক করে ১০-৩০ মিনিটের মধ্যে টাকা পাঠিয়ে দেবে। ধন্যবাদ!",
@@ -963,7 +960,10 @@ def main():
     
     # CONVERSATIONS
     dep_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^(💳 DEPOSIT)$"), deposit_start)],
+        entry_points=[
+            MessageHandler(filters.Regex("^(💳 DEPOSIT)$"), deposit_start),
+            CallbackQueryHandler(dep_method_selected, pattern="^depmeth_")
+        ],
         states={
             WAITING_AMOUNT: [
                 CallbackQueryHandler(dep_method_selected, pattern="^depmeth_"),
@@ -1024,6 +1024,7 @@ def main():
         states={
             P2P_SELL_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, p2p_number_rec)],
             P2P_SELL_PROOF: [
+                CallbackQueryHandler(p2p_net_rec, pattern="^p2pnet_"),
                 CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"),
                 MessageHandler(filters.PHOTO, p2p_proof_rec)
             ]
@@ -1121,8 +1122,6 @@ def main():
     app.add_handler(CallbackQueryHandler(vpn_days_selected, pattern="^vpndays_"))
     app.add_handler(CallbackQueryHandler(vpn_pack_selected, pattern="^vpnpack_"))
     app.add_handler(CallbackQueryHandler(p2p_sell_start, pattern="^p2p_sell$"))
-    app.add_handler(CallbackQueryHandler(p2p_net_rec, pattern="^p2pnet_"))
-    app.add_handler(CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
