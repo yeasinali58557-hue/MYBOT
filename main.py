@@ -23,7 +23,7 @@ def run_dummy_server():
 
 logging.basicConfig(level=logging.INFO)
 
-# Configuration
+# Updated Token
 TOKEN = "8736488112:AAFp7aT_5N13ASSZK6UR9IZFWIrxz_RTt-E"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
@@ -168,8 +168,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+    # বটের নাম পরিবর্তন করা হয়েছে
     welcome_msg = (
-        f"🎉 WELCOME TO DIGITAL SERVICE BOT! 🎉\n\n"
+        f"🎉 WELCOME TO — ͟͞͞💗𝗡𝗘𝗫𝗢𝗥𝗔 𝗦𝗧𝗢𝗥𝗘! 🎉\n\n"
         f"👤 NAME: {user.first_name.upper()}\n"
         f"🆔 USER ID: `{user.id}`\n"
         f"💰 YOUR BALANCE: `{get_user_balance(user.id)}` BDT\n\n"
@@ -742,7 +743,7 @@ async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"📩 **DEPOSIT SUMMARY**\n\n"
             f"🔹 **METHOD:** {method}\n"
             f"💵 **AMOUNT:** {amount} BDT\n"
-            f"📱 **ADDRESS/NO:** `{num}`{warn_text}\n\n"
+            f"📱 **ADDRESS/NO:** {num}{warn_text}\n\n"
             f"👇 **CLICK CONFIRM PAYMENT AFTER SENDING.**"
         )
         
@@ -977,13 +978,21 @@ async def p2p_sell_method_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
     return P2P_SELL_NUMBER
 
 async def p2p_number_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['p2p_number'] = update.message.text.strip()
+    text = update.message.text.strip()
+    
+    # ইউজার নম্বর না দিয়ে সরাসরি মেইন মেনু বাটনে চাপ দিলে
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "🔄 P2P (USDT BUY & SELL)", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    context.user_data['p2p_number'] = text
     kb = [
         [InlineKeyboardButton("🟡 BINANCE PAY ID", callback_data="p2pnet_BINANCE")],
         [InlineKeyboardButton("🌐 BEP-20", callback_data="p2pnet_BEP20")],
         [InlineKeyboardButton("🌐 TRC-20", callback_data="p2pnet_TRC20")]
     ]
     await update.message.reply_text("🌐 SELECT NETWORK ADDRESS:", reply_markup=InlineKeyboardMarkup(kb))
+    return P2P_SELL_PROOF
 
 async def p2p_net_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1057,7 +1066,8 @@ def main():
             ],
             WAITING_DEP_PROOF: [
                 CallbackQueryHandler(dep_confirm_clicked, pattern="^dep_confirm$"),
-                MessageHandler(filters.PHOTO, dep_proof_received)
+                MessageHandler(filters.PHOTO, dep_proof_received),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons)
             ]
         },
         fallbacks=fallback_buttons + [CommandHandler("start", start)],
@@ -1105,13 +1115,18 @@ def main():
         allow_reentry=True
     )
 
+    # p2p_conv আপডেট করা হয়েছে যাতে ইউজারের অন্য বাটন প্রেস করলে আগের স্টেটে আটকে না থাকে
     p2p_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(p2p_sell_method_rec, pattern="^p2psell_")],
+        entry_points=[
+            CallbackQueryHandler(p2p_sell_method_rec, pattern="^p2psell_"),
+            CallbackQueryHandler(p2p_net_rec, pattern="^p2pnet_")
+        ],
         states={
             P2P_SELL_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, p2p_number_rec)],
             P2P_SELL_PROOF: [
                 CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"),
-                MessageHandler(filters.PHOTO, p2p_proof_rec)
+                MessageHandler(filters.PHOTO, p2p_proof_rec),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons)
             ]
         },
         fallbacks=fallback_buttons + [CommandHandler("start", start)],
@@ -1207,7 +1222,7 @@ def main():
     app.add_handler(CallbackQueryHandler(vpn_days_selected, pattern="^vpndays_"))
     app.add_handler(CallbackQueryHandler(vpn_pack_selected, pattern="^vpnpack_"))
     app.add_handler(CallbackQueryHandler(p2p_sell_start, pattern="^p2p_sell$"))
-    app.add_handler(CallbackQueryHandler(p2p_net_rec, pattern="^p2pnet_"))
+    app.add_handler(CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
