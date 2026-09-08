@@ -23,7 +23,7 @@ def run_dummy_server():
 
 logging.basicConfig(level=logging.INFO)
 
-# Updated Token
+# Configuration
 TOKEN = "8736488112:AAFp7aT_5N13ASSZK6UR9IZFWIrxz_RTt-E"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
@@ -148,7 +148,6 @@ def get_main_keyboard(user_id):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
-    # Check for referral parameter in /start command
     referrer_id = None
     if context.args and len(context.args) > 0:
         try:
@@ -158,7 +157,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     rewarded_referrer = register_user(user.id, referrer_id)
     
-    # Notify Referrer if bonus was added
     if rewarded_referrer:
         try:
             new_ref_bal = get_user_balance(rewarded_referrer)
@@ -740,12 +738,11 @@ async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE
             usdt_amt = amount / 125.0
             warn_text = f"\n⚠️ **WARNING:** PLEASE SEND EXACTLY `{usdt_amt:.2f}` USDT"
 
-        # Deposit Summary with emojis
         text_summary = (
             f"📩 **DEPOSIT SUMMARY**\n\n"
             f"🔹 **METHOD:** {method}\n"
             f"💵 **AMOUNT:** {amount} BDT\n"
-            f"📱 **ADDRESS/NO:** {num}{warn_text}\n\n"
+            f"📱 **ADDRESS/NO:** `{num}`{warn_text}\n\n"
             f"👇 **CLICK CONFIRM PAYMENT AFTER SENDING.**"
         )
         
@@ -768,7 +765,6 @@ async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     method = context.user_data.get('dep_method', 'N/A')
     amount = context.user_data.get('dep_amount', 0)
     
-    # Final Confirmation Response to User
     final_text = (
         f"DEPOSIT REQUEST CREATE ✅\n\n"
         f"🔹 **METHOD:** {method}\n"
@@ -1212,7 +1208,6 @@ def main():
     app.add_handler(CallbackQueryHandler(vpn_pack_selected, pattern="^vpnpack_"))
     app.add_handler(CallbackQueryHandler(p2p_sell_start, pattern="^p2p_sell$"))
     app.add_handler(CallbackQueryHandler(p2p_net_rec, pattern="^p2pnet_"))
-    app.add_handler(CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
