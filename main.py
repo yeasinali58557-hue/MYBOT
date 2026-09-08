@@ -23,24 +23,27 @@ def run_dummy_server():
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "8733585059:AAEOznbOV6FEDmP-qk_VFRSzyuthX93r0Js"
+# Updated Token
+TOKEN = "8736488112:AAFp7aT_5N13ASSZK6UR9IZFWIrxz_RTt-E"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
+REFERRAL_BONUS = 2.0  # Per referral bonus in BDT
 
 # STATES
 WAITING_AMOUNT, WAITING_DEP_PROOF = 1, 2
 ADD_PROXY_NAME, ADD_PROXY_PRICE, ADD_PROXY_ITEMS = 3, 4, 5
 ADD_VPN_NAME, ADD_VPN_DAYS, ADD_VPN_PRICE = 6, 7, 8
-VPN_QTY_CUSTOM, ADMIN_VPN_DELIVER = 9, 10
-SET_BKASH, SET_NAGAD, SET_BINANCE, SET_BEP20, SET_TRC20 = 11, 12, 13, 14, 15
-BROADCAST_MSG = 16
-EDIT_VPN_NAME_STATE, EDIT_VPN_PRICE_STATE = 17, 18
-EDIT_PRX_NAME_STATE, EDIT_PRX_PRICE_STATE = 19, 20
+P2P_SELL_NUMBER, P2P_SELL_PROOF = 9, 10
+VPN_QTY_CUSTOM, ADMIN_VPN_DELIVER = 11, 12
+SET_BKASH, SET_NAGAD, SET_BINANCE, SET_BEP20, SET_TRC20 = 13, 14, 15, 16, 17
+BROADCAST_MSG = 18
+EDIT_VPN_NAME_STATE, EDIT_VPN_PRICE_STATE = 19, 20
+EDIT_PRX_NAME_STATE, EDIT_PRX_PRICE_STATE = 21, 22
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance REAL DEFAULT 0.0)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance REAL DEFAULT 0.0, referred_by INTEGER DEFAULT NULL)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS proxy_products (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT, price REAL, ip TEXT, port TEXT, username TEXT, password TEXT, status TEXT DEFAULT 'AVAILABLE')''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS vpn_products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, days INTEGER, price REAL)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS sales_history (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type TEXT, name TEXT, price REAL, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
@@ -97,10 +100,46 @@ def update_user_balance(user_id, amount):
     conn.close()
     return new_bal
 
+def register_user(user_id, referrer_id=None):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (user_id,))
+    row = cursor.fetchone()
+    
+    rewarded_referrer = None
+    if row is None:
+        if referrer_id and referrer_id != user_id:
+            cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (referrer_id,))
+            if cursor.fetchone():
+                cursor.execute('INSERT INTO users (user_id, balance, referred_by) VALUES (?, ?, ?)', (user_id, 0.0, referrer_id))
+                rewarded_referrer = referrer_id
+            else:
+                cursor.execute('INSERT INTO users (user_id, balance) VALUES (?, ?)', (user_id, 0.0))
+        else:
+            cursor.execute('INSERT INTO users (user_id, balance) VALUES (?, ?)', (user_id, 0.0))
+        conn.commit()
+    
+    conn.close()
+    
+    if rewarded_referrer:
+        update_user_balance(rewarded_referrer, REFERRAL_BONUS)
+        return rewarded_referrer
+    return None
+
+def get_referral_count(user_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM users WHERE referred_by = ?', (user_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
 def get_main_keyboard(user_id):
     kb = [
         ["🛡️ BUY VPN", "🌐 BUY PROXY"],
-        ["💳 DEPOSIT", "💰 BALANCE"]
+        ["🔄 P2P (USDT BUY & SELL)"],
+        ["💳 DEPOSIT", "💰 BALANCE"],
+        ["🔗 REFERRAL"]
     ]
     if user_id == ADMIN_ID:
         kb.append(["👑 ADMIN PANEL"])
@@ -108,8 +147,29 @@ def get_main_keyboard(user_id):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    get_user_balance(user.id)
     
+    # Check for referral parameter in /start command
+    referrer_id = None
+    if context.args and len(context.args) > 0:
+        try:
+            referrer_id = int(context.args[0])
+        except ValueError:
+            referrer_id = None
+            
+    rewarded_referrer = register_user(user.id, referrer_id)
+    
+    # Notify Referrer if bonus was added
+    if rewarded_referrer:
+        try:
+            new_ref_bal = get_user_balance(rewarded_referrer)
+            await context.bot.send_message(
+                rewarded_referrer, 
+                f"🎉 **NEW REFERRAL JOINED!**\n\nSomeone joined using your referral link!\n💰 Added Bonus: `{REFERRAL_BONUS}` BDT\n📊 Total Balance: `{new_ref_bal}` BDT",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
     welcome_msg = (
         f"🎉 WELCOME TO DIGITAL SERVICE BOT! 🎉\n\n"
         f"👤 NAME: {user.first_name.upper()}\n"
@@ -119,6 +179,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
     return ConversationHandler.END
+
+async def show_referral_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    bot_username = (await context.bot.get_me()).username
+    ref_link = f"https://t.me/{bot_username}?start={user_id}"
+    ref_count = get_referral_count(user_id)
+    total_earned = ref_count * REFERRAL_BONUS
+    
+    text = (
+        f"🔗 **YOUR REFERRAL DASHBOARD**\n\n"
+        f"🎁 **REWARD:** `{REFERRAL_BONUS}` BDT per valid referral\n"
+        f"👥 **TOTAL REFERRED:** `{ref_count}` Users\n"
+        f"💰 **TOTAL EARNED:** `{total_earned}` BDT\n\n"
+        f"📌 **YOUR UNIQUE REFERRAL LINK:**\n"
+        f"`{ref_link}`\n\n"
+        f"💡 Share this link with your friends to earn automatic balance!"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_buttons(update, context)
@@ -216,7 +294,7 @@ async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['stk_prx_price'] = float(update.message.text.strip())
         msg = (
             "🚀 **PASTE BULK PROXIES NOW!**\n\n"
-            "PASTE AND SEND ALL PROXIES TOGETHER.\n\n"
+            "একসাথে যত খুশি প্রক্সি পেস্ট করে পাঠিয়ে দিন।\n\n"
             "📌 **SUPPORTED FORMATS:**\n"
             "`IP:PORT:USERNAME:PASSWORD`\n"
             "`IP:PORT`"
@@ -618,15 +696,15 @@ async def set_trc20_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- DEPOSIT SYSTEM ---
 async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
-        [InlineKeyboardButton("💗 BKASH", callback_data="depmeth_BKASH")],
-        [InlineKeyboardButton("🧡 NAGAD", callback_data="depmeth_NAGAD")],
+        [InlineKeyboardButton("✅ BKASH", callback_data="depmeth_BKASH")],
+        [InlineKeyboardButton("✅ NAGAD", callback_data="depmeth_NAGAD")],
         [InlineKeyboardButton("🟡 BINANCE", callback_data="depmeth_BINANCE")]
     ]
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
+        await update.callback_query.message.reply_text("💳 **SELECT DEPOSIT METHOD:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     else:
-        await update.message.reply_text("💳 SELECT PAYMENT METHOD:", reply_markup=InlineKeyboardMarkup(kb))
+        await update.message.reply_text("💳 **SELECT DEPOSIT METHOD:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return WAITING_AMOUNT
 
 async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -636,14 +714,18 @@ async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['dep_method'] = method
     
     num = get_setting(method)
-    await query.edit_message_text(f"✅ METHOD: {method}\n📞 SEND TO ({'ID' if method=='BINANCE' else 'NUMBER'}): `{num}`\n\n💳 ENTER DEPOSIT AMOUNT (BDT):", parse_mode="Markdown")
+    text = (
+        f"✅ **METHOD:** {method}\n"
+        f"📞 **SEND TO ({'ID' if method=='BINANCE' else 'NUMBER'}):** `{num}`\n\n"
+        f"💳 **ENTER DEPOSIT AMOUNT (BDT):**"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown")
     return WAITING_AMOUNT
 
 async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     
-    # Check if user pressed a menu button instead of entering amount
-    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "👑 ADMIN PANEL"]:
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "🔄 P2P (USDT BUY & SELL)", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
         await handle_buttons(update, context)
         return ConversationHandler.END
 
@@ -651,14 +733,22 @@ async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         amount = float(text)
         method = context.user_data.get('dep_method', 'BKASH')
         context.user_data['dep_amount'] = amount
+        num = get_setting(method)
         
         warn_text = ""
         if method == "BINANCE":
             usdt_amt = amount / 125.0
-            warn_text = f"\n\n⚠️ WARNING: PLEASE SEND EXACTLY `{usdt_amt:.2f}` USDT (RATE: 125 BDT = 1$)"
+            warn_text = f"\n⚠️ **WARNING:** PLEASE SEND EXACTLY `{usdt_amt:.2f}` USDT"
 
-        num = get_setting(method)
-        text_summary = f"📥 DEPOSIT SUMMARY\n\n• METHOD: {method}\n• AMOUNT: `{amount}` BDT\n• ADDRESS/NO: `{num}`{warn_text}\n\nCLICK CONFIRM PAYMENT AFTER SENDING."
+        # Deposit Summary with emojis
+        text_summary = (
+            f"📩 **DEPOSIT SUMMARY**\n\n"
+            f"🔹 **METHOD:** {method}\n"
+            f"💵 **AMOUNT:** {amount} BDT\n"
+            f"📱 **ADDRESS/NO:** {num}{warn_text}\n\n"
+            f"👇 **CLICK CONFIRM PAYMENT AFTER SENDING.**"
+        )
+        
         kb = [[InlineKeyboardButton("✅ CONFIRM PAYMENT", callback_data="dep_confirm")]]
         await update.message.reply_text(text_summary, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         return WAITING_DEP_PROOF
@@ -669,7 +759,7 @@ async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def dep_confirm_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("📸 PLEASE SEND PAYMENT SCREENSHOT AS PROOF:")
+    await query.edit_message_text("📸 **PLEASE SEND THE PAYMENT SCREENSHOT NOW:**", parse_mode="Markdown")
     return WAITING_DEP_PROOF
 
 async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -678,19 +768,21 @@ async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     method = context.user_data.get('dep_method', 'N/A')
     amount = context.user_data.get('dep_amount', 0)
     
-    # UPPERCASE ENGLISH DEPOSIT CONFIRMATION MESSAGE
-    await update.message.reply_text(
-        "📩 **PAYMENT PROOF RECEIVED!**\n\n"
-        "⏳ YOUR DEPOSIT REQUEST HAS BEEN SUCCESSFULLY RECEIVED. THE ADMIN WILL VERIFY YOUR TRANSACTION AND ADD THE BALANCE SHORTLY. PLEASE WAIT A FEW MOMENTS.", 
-        parse_mode="Markdown",
-        reply_markup=get_main_keyboard(user.id)
+    # Final Confirmation Response to User
+    final_text = (
+        f"DEPOSIT REQUEST CREATE ✅\n\n"
+        f"🔹 **METHOD:** {method}\n"
+        f"💵 **AMOUNT:** {amount} BDT\n\n"
+        f"⚡ **WAIT FOR 2-5 MINUTE ADMIN VERIFY** ⚡"
     )
+    
+    await update.message.reply_text(final_text, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
     
     admin_kb = [[InlineKeyboardButton("✅ APPROVE", callback_data=f"depapp_app_{user.id}_{amount}"), InlineKeyboardButton("❌ REJECT", callback_data=f"depapp_rej_{user.id}_{amount}")]]
     await context.bot.send_photo(
         ADMIN_ID, 
         photo, 
-        caption=f"📥 NEW DEPOSIT REQUEST\n\n👤 USER: {user.full_name.upper()} (`{user.id}`)\n💳 METHOD: {method}\n💰 AMOUNT: `{amount}` BDT", 
+        caption=f"📥 **NEW DEPOSIT REQUEST**\n\n👤 USER: {user.full_name.upper()} (`{user.id}`)\n💳 METHOD: {method}\n💰 AMOUNT: `{amount}` BDT", 
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(admin_kb)
     )
@@ -865,14 +957,91 @@ async def add_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ INVALID PRICE!")
         return ADD_VPN_PRICE
 
+# --- P2P HANDLERS ---
+async def show_p2p_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = "🔄 P2P USDT TRADING ZONE\n\n📢 BUY USDT: 1 $ = 130 ৳\n📢 SELL USDT: 1 $ = 122 ৳"
+    kb = [
+        [InlineKeyboardButton("💵 BUY USDT", url="https://t.me/NX_SHAKIL")],
+        [InlineKeyboardButton("🔴 SELL USDT", callback_data="p2p_sell")]
+    ]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb))
+
+async def p2p_sell_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    kb = [[InlineKeyboardButton("💗 BKASH", callback_data="p2psell_BKASH")], [InlineKeyboardButton("🧡 NAGAD", callback_data="p2psell_NAGAD")]]
+    await query.edit_message_text("💳 SELECT PAYMENT METHOD TO RECEIVE BDT:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def p2p_sell_method_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    method = query.data.split("_")[1]
+    context.user_data['p2p_method'] = method
+    await query.edit_message_text(f"📞 ENTER YOUR {method} NUMBER:")
+    return P2P_SELL_NUMBER
+
+async def p2p_number_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['p2p_number'] = update.message.text.strip()
+    kb = [
+        [InlineKeyboardButton("🟡 BINANCE PAY ID", callback_data="p2pnet_BINANCE")],
+        [InlineKeyboardButton("🌐 BEP-20", callback_data="p2pnet_BEP20")],
+        [InlineKeyboardButton("🌐 TRC-20", callback_data="p2pnet_TRC20")]
+    ]
+    await update.message.reply_text("🌐 SELECT NETWORK ADDRESS:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def p2p_net_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    net = query.data.split("_")[1]
+    addr = get_setting(net)
+    context.user_data['p2p_net'] = net
+    
+    msg = f"📥 SEND USDT TO THIS ADDRESS\n\n🌐 NETWORK: {net}\n🔑 ADDRESS: `{addr}`\n\nCLICK CONFIRM PAYMENT AFTER SENDING."
+    kb = [[InlineKeyboardButton("✅ CONFIRM PAYMENT", callback_data="p2p_confirm_btn")]]
+    await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    return P2P_SELL_PROOF
+
+async def p2p_confirm_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("📸 SEND SCREENSHOT / PROOF OF PAYMENT:")
+    return P2P_SELL_PROOF
+
+async def p2p_proof_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    photo = update.message.photo[-1].file_id
+    method = context.user_data.get('p2p_method', 'N/A')
+    number = context.user_data.get('p2p_number', 'N/A')
+    net = context.user_data.get('p2p_net', 'N/A')
+    
+    await update.message.reply_text(
+        "📩 **Screenshot Received!**\n\n"
+        "⏳ আপনার P2P সেল প্রুফটি সফলভাবে পাওয়া গেছে। এডমিন পেমেন্ট চেক করে ১০-৩০ মিনিটের মধ্যে টাকা পাঠিয়ে দেবে। ধন্যবাদ!",
+        parse_mode="Markdown",
+        reply_markup=get_main_keyboard(user.id)
+    )
+    
+    admin_msg = (
+        f"🚨 NEW P2P SELL REQUEST 🚨\n\n"
+        f"👤 USER: {user.full_name.upper()}\n"
+        f"🆔 USER ID: `{user.id}`\n"
+        f"💳 RECEIVE METHOD: {method}\n"
+        f"📞 RECEIVE NUMBER: `{number}`\n"
+        f"🌐 NETWORK: {net}"
+    )
+    await context.bot.send_photo(ADMIN_ID, photo, caption=admin_msg, parse_mode="Markdown")
+    return ConversationHandler.END
+
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
     
     if text == "💳 DEPOSIT": await deposit_start(update, context)
     elif text == "💰 BALANCE": await update.message.reply_text(f"📊 YOUR BALANCE: `{get_user_balance(user_id)}` BDT", parse_mode="Markdown")
+    elif text == "🔗 REFERRAL": await show_referral_info(update, context)
     elif text == "🛡️ BUY VPN": await start_vpn_flow(update, context)
     elif text == "🌐 BUY PROXY": await show_proxy_store(update, context)
+    elif text == "🔄 P2P (USDT BUY & SELL)": await show_p2p_menu(update, context)
     elif text == "👑 ADMIN PANEL": await admin_panel(update, context)
 
 def main():
@@ -880,7 +1049,7 @@ def main():
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
 
-    fallback_buttons = [MessageHandler(filters.Regex("^(🛡️ BUY VPN|🌐 BUY PROXY|💳 DEPOSIT|💰 BALANCE|👑 ADMIN PANEL)$"), cancel_conversation)]
+    fallback_buttons = [MessageHandler(filters.Regex("^(🛡️ BUY VPN|🌐 BUY PROXY|🔄 P2P \(USDT BUY & SELL\)|💳 DEPOSIT|💰 BALANCE|🔗 REFERRAL|👑 ADMIN PANEL)$"), cancel_conversation)]
     
     # CONVERSATIONS
     dep_conv = ConversationHandler(
@@ -934,6 +1103,20 @@ def main():
             ADD_VPN_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_vpn_name_rec)],
             ADD_VPN_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_vpn_days_rec)],
             ADD_VPN_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_vpn_price_rec)]
+        },
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
+    )
+
+    p2p_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(p2p_sell_method_rec, pattern="^p2psell_")],
+        states={
+            P2P_SELL_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, p2p_number_rec)],
+            P2P_SELL_PROOF: [
+                CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"),
+                MessageHandler(filters.PHOTO, p2p_proof_rec)
+            ]
         },
         fallbacks=fallback_buttons + [CommandHandler("start", start)],
         per_message=False,
@@ -1005,6 +1188,7 @@ def main():
     app.add_handler(vpn_conv)
     app.add_handler(admin_deliver_conv)
     app.add_handler(add_vpn_conv)
+    app.add_handler(p2p_conv)
     app.add_handler(broadcast_conv)
     app.add_handler(settings_conv)
     app.add_handler(edit_vpn_conv)
@@ -1026,6 +1210,9 @@ def main():
     app.add_handler(CallbackQueryHandler(buy_proxy_process, pattern="^buyprx_"))
     app.add_handler(CallbackQueryHandler(vpn_days_selected, pattern="^vpndays_"))
     app.add_handler(CallbackQueryHandler(vpn_pack_selected, pattern="^vpnpack_"))
+    app.add_handler(CallbackQueryHandler(p2p_sell_start, pattern="^p2p_sell$"))
+    app.add_handler(CallbackQueryHandler(p2p_net_rec, pattern="^p2pnet_"))
+    app.add_handler(CallbackQueryHandler(p2p_confirm_clicked, pattern="^p2p_confirm_btn$"))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
