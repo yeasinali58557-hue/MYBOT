@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO)
 TOKEN = "8736488112:AAHTHjThZMFND1pS0aITTImIKJaINzQL3Jk"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
-REFERRAL_BONUS = 2.0  # Per referral bonus in BDT
+REFERRAL_BONUS = 2.0
 
 # STATES
 WAITING_AMOUNT, WAITING_DEP_PROOF = 1, 2
@@ -37,6 +37,7 @@ SET_BKASH, SET_NAGAD, SET_BINANCE, SET_BEP20, SET_TRC20 = 11, 12, 13, 14, 15
 BROADCAST_MSG = 16
 EDIT_VPN_NAME_STATE, EDIT_VPN_PRICE_STATE = 17, 18
 EDIT_PRX_NAME_STATE, EDIT_PRX_PRICE_STATE = 19, 20
+PRX_QTY_CUSTOM = 21
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -271,7 +272,7 @@ async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     conn.close()
     kb.append([InlineKeyboardButton("➕ ADD BULK PROXY STOCK", callback_data="admin_add_proxy")])
-    kb.append([InlineKeyboardButton("🔙 Back", callback_data="admin_panel_back")])
+    kb.append([InlineKeyboardButton("⬅️ Back", callback_data="admin_panel_back")])
     
     await query.edit_message_text(text_info, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -367,7 +368,7 @@ async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(result_text, parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
-# --- BUY PROXY STORE ---
+# --- BUY PROXY STORE & QUANTITY FLOW ---
 async def show_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -386,56 +387,123 @@ async def show_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     kb = []
     for cat, price in items:
-        kb.append([InlineKeyboardButton(f"🌐 {cat.upper()} - {price} BDT", callback_data=f"buyprx_{cat}")])
+        kb.append([InlineKeyboardButton(f"🌐 {cat.upper()} - {price} BDT", callback_data=f"selprx_{cat}_{price}")])
     
+    kb.append([InlineKeyboardButton("⬅️ Back", callback_data="proxy_store_close")])
+
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text("🌐 SELECT PROXY PACKAGE:", reply_markup=InlineKeyboardMarkup(kb))
     else:
         await update.message.reply_text("🌐 SELECT PROXY PACKAGE:", reply_markup=InlineKeyboardMarkup(kb))
 
-async def buy_proxy_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def close_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    cat = query.data.split("_")[1]
-    user_id = query.from_user.id
+    await query.edit_message_text("✅ Closed Proxy Menu.")
+
+async def select_proxy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, cat, price = query.data.split("_")
     
+    context.user_data['buy_prx_cat'] = cat
+    context.user_data['buy_prx_price'] = float(price)
+
+    kb = [
+        [InlineKeyboardButton("1️⃣ 1 pcs", callback_data="prxqty_1"), InlineKeyboardButton("3️⃣ 3 pcs", callback_data="prxqty_3")],
+        [InlineKeyboardButton("5️⃣ 5 pcs", callback_data="prxqty_10"), InlineKeyboardButton("🔟 10 pcs", callback_data="prxqty_10")],
+        [InlineKeyboardButton("📝 Enter Quantity", callback_data="prxqty_custom")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="proxy_main_back")]
+    ]
+    
+    text = f"🌐 **Proxy ~ {cat.upper()}**\n\n❓ **কয়টি নিতে চান?**"
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+
+async def proxy_qty_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data.split("_")[1]
+    
+    if data == "custom":
+        await query.edit_message_text("📝 **কত পিস প্রক্সি কিনতে চান? সংখ্যাটি লিখুন:**", parse_mode="Markdown")
+        return PRX_QTY_CUSTOM
+    else:
+        qty = int(data)
+        return await finalize_proxy_order(update, context, qty, query)
+
+async def prx_custom_qty_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    try:
+        qty = int(text)
+        if qty <= 0:
+            await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন!")
+            return PRX_QTY_CUSTOM
+        return await finalize_proxy_order(update, context, qty)
+    except ValueError:
+        await update.message.reply_text("❌ নম্বর লিখুন! (যেমন: 2, 4, 15)")
+        return PRX_QTY_CUSTOM
+
+async def finalize_proxy_order(update, context, qty, query=None):
+    user = update.effective_user
+    cat = context.user_data.get('buy_prx_cat')
+    price_per = context.user_data.get('buy_prx_price', 0)
+    total_cost = price_per * qty
+
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('SELECT id, price, ip, port, username, password FROM proxy_products WHERE category = ? AND status = "AVAILABLE" LIMIT 1', (cat,))
-    row = cursor.fetchone()
+    cursor.execute('SELECT id, ip, port, username, password FROM proxy_products WHERE category = ? AND status = "AVAILABLE" LIMIT ?', (cat, qty))
+    rows = cursor.fetchall()
     
-    if not row:
-        await query.edit_message_text("❌ OUT OF STOCK!")
+    if len(rows) < qty:
+        msg = f"❌ **পর্যাপ্ত স্টোক নেই!**\n\nউপলব্ধ প্রক্সি: `{len(rows)}` পিস\nআপনি চেয়েছেন: `{qty}` পিস"
         conn.close()
-        return
-        
-    pid, price, ip, port, uname, pwd = row
-    bal = get_user_balance(user_id)
-    if bal < price:
-        await query.edit_message_text(f"❌ INSUFFICIENT BALANCE!\nPRICE: `{price}` BDT\nYOUR BALANCE: `{bal}` BDT", parse_mode="Markdown")
+        if query: await query.edit_message_text(msg, parse_mode="Markdown")
+        else: await update.message.reply_text(msg, parse_mode="Markdown")
+        return ConversationHandler.END
+
+    bal = get_user_balance(user.id)
+    if bal < total_cost:
+        msg = f"❌ **পর্যাপ্ত ব্যালেন্স নেই!**\n\nমোট খরচ: `{total_cost}` BDT\nআপনার ব্যালেন্স: `{bal}` BDT"
         conn.close()
-        return
+        if query: await query.edit_message_text(msg, parse_mode="Markdown")
+        else: await update.message.reply_text(msg, parse_mode="Markdown")
+        return ConversationHandler.END
+
+    update_user_balance(user.id, -total_cost)
+
+    delivered_items = []
+    for pid, ip, port, uname, pwd in rows:
+        cursor.execute('UPDATE proxy_products SET status = "SOLD" WHERE id = ?', (pid,))
+        cursor.execute('INSERT INTO sales_history (item_type, name, price) VALUES ("PROXY", ?, ?)', (cat, price_per))
         
-    update_user_balance(user_id, -price)
-    
-    cursor.execute('UPDATE proxy_products SET status = "SOLD" WHERE id = ?', (pid,))
-    cursor.execute('INSERT INTO sales_history (item_type, name, price) VALUES ("PROXY", ?, ?)', (cat, price))
+        if uname and pwd:
+            delivered_items.append(f"`{ip}:{port}:{uname}:{pwd}`")
+        else:
+            delivered_items.append(f"`{ip}:{port}`")
+
     conn.commit()
     conn.close()
-    
-    user_pass_str = f"⭐ USER: `{uname}`\n🔑 PASS: `{pwd}`\n" if uname else ""
-    
-    deliv = (
-        f"✅ **ORDER COMPLETED** ✨\n\n"
-        f"📦 PACKAGE: `{cat.upper()}`\n\n"
-        f"🌐 **YOUR PROXY DETAILS:**\n"
-        f"🌐 IP: `{ip}`\n"
-        f"⬆️ PORT: `{port}`\n"
-        f"{user_pass_str}\n"
-        f"THANK YOU FOR YOUR PURCHASE!"
+
+    items_formatted = "\n".join(delivered_items)
+    deliv_msg = (
+        f"✅ **অর্ডার সফল হয়েছে!** ✨\n\n"
+        f"📦 **প্যাকেজ:** `{cat.upper()}`\n"
+        f"🔢 **পরিমাণ:** `{qty}` PCS\n"
+        f"💰 **মোট খরচ:** `{total_cost}` BDT\n\n"
+        f"🌐 **আপনার প্রক্সি সমুহ:**\n"
+        f"{items_formatted}\n\n"
+        f"ধন্যবাদ আমাদের থেকে কেনার জন্য! ❤️"
     )
-    await query.edit_message_text(deliv, parse_mode="Markdown")
+
+    if query: await query.edit_message_text(deliv_msg, parse_mode="Markdown")
+    else: await update.message.reply_text(deliv_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+    
+    return ConversationHandler.END
 
 # --- BROADCAST ---
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -488,7 +556,7 @@ async def manage_vpn_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         
     kb.append([InlineKeyboardButton("➕ ADD NEW VPN PACK", callback_data="admin_add_vpn")])
-    kb.append([InlineKeyboardButton("🔙 Back", callback_data="admin_panel_back")])
+    kb.append([InlineKeyboardButton("⬅️ Back", callback_data="admin_panel_back")])
     
     await query.edit_message_text("⚙️ VPN STOCK MANAGEMENT PANEL:", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -501,7 +569,7 @@ async def vpn_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("✏️ CHANGE NAME", callback_data=f"vpn_cname_{vpn_name}")],
         [InlineKeyboardButton("💵 CHANGE PRICE", callback_data=f"vpn_cprice_{vpn_name}")],
         [InlineKeyboardButton("❌ DELETE PRODUCT", callback_data=f"vpn_del_{vpn_name}")],
-        [InlineKeyboardButton("🔙 Back", callback_data="admin_manage_vpn")]
+        [InlineKeyboardButton("⬅️ Back", callback_data="admin_manage_vpn")]
     ]
     await query.edit_message_text(f"✏️ EDITING VPN: {vpn_name.upper()}\nSELECT AN OPTION:", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -583,7 +651,7 @@ async def prx_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("✏️ CHANGE NAME", callback_data=f"prx_cname_{prx_name}")],
         [InlineKeyboardButton("💵 CHANGE PRICE", callback_data=f"prx_cprice_{prx_name}")],
         [InlineKeyboardButton("❌ DELETE ALL STOCK", callback_data=f"prx_del_{prx_name}")],
-        [InlineKeyboardButton("🔙 Back", callback_data="admin_manage_proxy")]
+        [InlineKeyboardButton("⬅️ Back", callback_data="admin_manage_proxy")]
     ]
     await query.edit_message_text(f"✏️ EDITING PROXY: {prx_name.upper()}\nSELECT AN OPTION:", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -673,7 +741,7 @@ async def admin_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("EDIT BKASH", callback_data="set_bkash"), InlineKeyboardButton("EDIT NAGAD", callback_data="set_nagad")],
         [InlineKeyboardButton("EDIT BINANCE ID", callback_data="set_binance")],
         [InlineKeyboardButton("EDIT BEP20 ADDRESS", callback_data="set_bep20"), InlineKeyboardButton("EDIT TRC20 ADDRESS", callback_data="set_trc20")],
-        [InlineKeyboardButton("🔙 Back", callback_data="admin_panel_back")]
+        [InlineKeyboardButton("⬅️ Back", callback_data="admin_panel_back")]
     ]
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -885,14 +953,14 @@ async def vpn_days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     kb = []
     if not prods:
-        kb.append([InlineKeyboardButton("🔙 Back", callback_data="vpn_main_back")])
+        kb.append([InlineKeyboardButton("⬅️ Back", callback_data="vpn_main_back")])
         await query.edit_message_text(f"❌ NO VPN PACKS AVAILABLE FOR {days} DAYS!", reply_markup=InlineKeyboardMarkup(kb))
         return
         
     for name, price in prods:
         kb.append([InlineKeyboardButton(f"{name.upper()} [{days} DAYS] - {price} BDT", callback_data=f"vpnpack_{name}_{price}")])
     
-    kb.append([InlineKeyboardButton("🔙 Back", callback_data="vpn_main_back")])
+    kb.append([InlineKeyboardButton("⬅️ Back", callback_data="vpn_main_back")])
     
     await query.edit_message_text(f"💥 VPN ({days} DAYS) 💥\n\nSELECT VPN SERVICE: 🛡️", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -908,7 +976,7 @@ async def vpn_pack_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("1 PCS", callback_data="vpnqty_1"), InlineKeyboardButton("3 PCS", callback_data="vpnqty_3")],
         [InlineKeyboardButton("5 PCS", callback_data="vpnqty_5"), InlineKeyboardButton("10 PCS", callback_data="vpnqty_10")],
         [InlineKeyboardButton("📝 ENTER QUANTITY", callback_data="vpnqty_custom")],
-        [InlineKeyboardButton("🔙 Back", callback_data=f"vpndays_{days}")]
+        [InlineKeyboardButton("⬅️ Back", callback_data=f"vpndays_{days}")]
     ]
     await query.edit_message_text(f"💥 VPN 💥 {name.upper()} [{days} DAYS]\n\nHOW MANY PIECES DO YOU WANT TO BUY? 🛡️", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -1090,6 +1158,14 @@ def main():
         allow_reentry=True
     )
 
+    prx_buy_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(proxy_qty_process, pattern="^prxqty_")],
+        states={PRX_QTY_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, prx_custom_qty_received)]},
+        fallbacks=fallback_buttons + [CommandHandler("start", start)],
+        per_message=False,
+        allow_reentry=True
+    )
+
     vpn_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(vpn_qty_process, pattern="^vpnqty_")],
         states={VPN_QTY_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, vpn_custom_qty_received)]},
@@ -1180,6 +1256,7 @@ def main():
     
     app.add_handler(dep_conv)
     app.add_handler(add_prx_conv)
+    app.add_handler(prx_buy_conv)
     app.add_handler(vpn_conv)
     app.add_handler(admin_deliver_conv)
     app.add_handler(add_vpn_conv)
@@ -1191,6 +1268,8 @@ def main():
     # CALLBACKS
     app.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel_back$"))
     app.add_handler(CallbackQueryHandler(start_vpn_flow, pattern="^vpn_main_back$"))
+    app.add_handler(CallbackQueryHandler(show_proxy_store, pattern="^proxy_main_back$"))
+    app.add_handler(CallbackQueryHandler(close_proxy_store, pattern="^proxy_store_close$"))
     app.add_handler(CallbackQueryHandler(admin_settings_menu, pattern="^admin_settings$"))
     app.add_handler(CallbackQueryHandler(manage_vpn_stock, pattern="^admin_manage_vpn$"))
     app.add_handler(CallbackQueryHandler(manage_proxy_stock, pattern="^admin_manage_proxy$"))
@@ -1201,7 +1280,7 @@ def main():
     
     app.add_handler(CallbackQueryHandler(dep_approval_handler, pattern="^depapp_"))
     app.add_handler(CallbackQueryHandler(show_proxy_store, pattern="^buy_proxy$"))
-    app.add_handler(CallbackQueryHandler(buy_proxy_process, pattern="^buyprx_"))
+    app.add_handler(CallbackQueryHandler(select_proxy_cat, pattern="^selprx_"))
     app.add_handler(CallbackQueryHandler(vpn_days_selected, pattern="^vpndays_"))
     app.add_handler(CallbackQueryHandler(vpn_pack_selected, pattern="^vpnpack_"))
     
