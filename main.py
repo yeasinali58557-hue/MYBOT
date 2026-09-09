@@ -23,7 +23,8 @@ def run_dummy_server():
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "8736488112:AAHTHjThZMFND1pS0aITTImIKJaINzQL3Jk"
+# Updated Bot Token
+TOKEN = "8736488112:AAFogh_wtKrmJfKAOrexqJV-kWI5AkId8O8"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
 REFERRAL_BONUS = 2.0
@@ -460,7 +461,7 @@ async def finalize_proxy_order(update, context, qty, query=None):
     rows = cursor.fetchall()
     
     if len(rows) < qty:
-        msg = f"❌ **পর্যাপ্ত স্টোক নেই!**\n\nউপলব্ধ প্রক্সি: `{len(rows)}` পিস\nআপনি চেয়েছেন: `{qty}` পিস"
+        msg = f"❌ **পর্যাপ্ত স্টক নেই!**\n\nউপলব্ধ প্রক্সি: `{len(rows)}` পিস\nআপনি চেয়েছেন: `{qty}` পিস"
         conn.close()
         if query: await query.edit_message_text(msg, parse_mode="Markdown")
         else: await update.message.reply_text(msg, parse_mode="Markdown")
@@ -476,32 +477,36 @@ async def finalize_proxy_order(update, context, qty, query=None):
 
     update_user_balance(user.id, -total_cost)
 
-    delivered_items = []
-    for pid, ip, port, uname, pwd in rows:
+    # UPDATED PROXY DELIVERY FORMAT
+    delivered_blocks = []
+    for idx, (pid, ip, port, uname, pwd) in enumerate(rows, 1):
         cursor.execute('UPDATE proxy_products SET status = "SOLD" WHERE id = ?', (pid,))
         cursor.execute('INSERT INTO sales_history (item_type, name, price) VALUES ("PROXY", ?, ?)', (cat, price_per))
         
-        if uname and pwd:
-            delivered_items.append(f"`{ip}:{port}:{uname}:{pwd}`")
-        else:
-            delivered_items.append(f"`{ip}:{port}`")
+        block = (
+            f"**{idx}.**\n"
+            f"`IP:{ip}`\n"
+            f"`PORT:{port}`\n"
+            f"`USERNAME:{uname if uname else 'N/A'}`\n"
+            f"`PASSWORD:{pwd if pwd else 'N/A'}`"
+        )
+        delivered_blocks.append(block)
 
     conn.commit()
     conn.close()
 
-    items_formatted = "\n".join(delivered_items)
+    items_formatted = "\n\n".join(delivered_blocks)
     deliv_msg = (
-        f"✅ **অর্ডার সফল হয়েছে!** ✨\n\n"
-        f"📦 **প্যাকেজ:** `{cat.upper()}`\n"
-        f"🔢 **পরিমাণ:** `{qty}` PCS\n"
-        f"💰 **মোট খরচ:** `{total_cost}` BDT\n\n"
-        f"🌐 **আপনার প্রক্সি সমুহ:**\n"
+        f"🌐 **{cat.upper()} DELIVERY SUCCESSFUL**\n\n"
+        f"💵 **PRICE:** `{total_cost}` BDT\n\n"
         f"{items_formatted}\n\n"
-        f"ধন্যবাদ আমাদের থেকে কেনার জন্য! ❤️"
+        f"⚠️ **CLICK ON COPY YOUR PRODUCTS THANKS FOR BUYING**"
     )
 
-    if query: await query.edit_message_text(deliv_msg, parse_mode="Markdown")
-    else: await update.message.reply_text(deliv_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+    if query: 
+        await query.edit_message_text(deliv_msg, parse_mode="Markdown")
+    else: 
+        await update.message.reply_text(deliv_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
     
     return ConversationHandler.END
 
