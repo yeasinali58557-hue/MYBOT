@@ -24,7 +24,7 @@ def run_dummy_server():
 logging.basicConfig(level=logging.INFO)
 
 # Updated Token
-TOKEN = "8736488112:AAHTHjThZMFND1pS0aITTImIKJaINzQL3Jk
+TOKEN = "8736488112:AAHTHjThZMFND1pS0aITTImIKJaINzQL3Jk"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
 REFERRAL_BONUS = 2.0  # Per referral bonus in BDT
