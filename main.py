@@ -23,7 +23,6 @@ def run_dummy_server():
 
 logging.basicConfig(level=logging.INFO)
 
-# Updated Token
 TOKEN = "8736488112:AAHTHjThZMFND1pS0aITTImIKJaINzQL3Jk"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
@@ -166,14 +165,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+    user_bal = get_user_balance(user.id)
+
     welcome_msg = (
         f"🎉 WELCOME TO — ͟͞͞💗𝗡𝗘𝗫𝗢𝗥𝗔 𝗦𝗧𝗢𝗥𝗘 🎉\n\n"
         f"👤 NAME: {user.first_name.upper()}\n"
         f"🆔 USER ID: `{user.id}`\n"
-        f"💰 YOUR BALANCE: `{get_user_balance(user.id)}` BDT\n\n"
+        f"💰 YOUR BALANCE: `{user_bal}` BDT\n\n"
         f"PLEASE CHOOSE AN OPTION FROM THE MENU BELOW:"
     )
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+    return ConversationHandler.END
+
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await handle_buttons(update, context)
     return ConversationHandler.END
 
 async def show_referral_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,10 +198,6 @@ async def show_referral_info(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"💡 Share this link with your friends to earn automatic balance!"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
-
-async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await handle_buttons(update, context)
-    return ConversationHandler.END
 
 # --- ADMIN PANEL ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -281,13 +282,23 @@ async def start_add_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_PROXY_NAME
 
 async def add_proxy_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['stk_prx_name'] = update.message.text.strip().upper()
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+        
+    context.user_data['stk_prx_name'] = text.upper()
     await update.message.reply_text("💵 ENTER PRICE PER PROXY (BDT):")
     return ADD_PROXY_PRICE
 
 async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     try:
-        context.user_data['stk_prx_price'] = float(update.message.text.strip())
+        context.user_data['stk_prx_price'] = float(text)
         msg = (
             "🚀 **PASTE BULK PROXIES NOW!**\n\n"
             "একসাথে যত খুশি প্রক্সি পেস্ট করে পাঠিয়ে দিন।\n\n"
@@ -298,11 +309,16 @@ async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(msg, parse_mode="Markdown")
         return ADD_PROXY_ITEMS
     except ValueError:
-        await update.message.reply_text("❌ INVALID PRICE!")
+        await update.message.reply_text("❌ INVALID PRICE! Please enter a number (e.g. 15 or 20):")
         return ADD_PROXY_PRICE
 
 async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lines = update.message.text.strip().split('\n')
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    lines = text.split('\n')
     name = context.user_data.get('stk_prx_name')
     price = context.user_data.get('stk_prx_price')
     
@@ -355,7 +371,7 @@ async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def show_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('SELECT category, price, COUNT(*) FROM proxy_products WHERE status = "AVAILABLE" GROUP BY category')
+    cursor.execute('SELECT category, price FROM proxy_products WHERE status = "AVAILABLE" GROUP BY category')
     items = cursor.fetchall()
     conn.close()
     
@@ -369,8 +385,8 @@ async def show_proxy_store(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     kb = []
-    for cat, price, count in items:
-        kb.append([InlineKeyboardButton(f"🌐 {cat.upper()} - {price} BDT ({count} PCS)", callback_data=f"buyprx_{cat}")])
+    for cat, price in items:
+        kb.append([InlineKeyboardButton(f"🌐 {cat.upper()} - {price} BDT", callback_data=f"buyprx_{cat}")])
     
     if update.callback_query:
         await update.callback_query.answer()
@@ -430,6 +446,10 @@ async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_text = update.message.text
+    if msg_text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('SELECT user_id FROM users')
@@ -495,6 +515,10 @@ async def edit_vpn_name_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def edit_vpn_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_name = update.message.text.strip().upper()
+    if new_name in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     old_name = context.user_data.get('old_vpn_name')
     
     conn = sqlite3.connect(DB_FILE)
@@ -515,8 +539,13 @@ async def edit_vpn_price_start(update: Update, context: ContextTypes.DEFAULT_TYP
     return EDIT_VPN_PRICE_STATE
 
 async def edit_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     try:
-        new_price = float(update.message.text.strip())
+        new_price = float(text)
         vpn_name = context.user_data.get('edit_vpn_price_target')
         
         conn = sqlite3.connect(DB_FILE)
@@ -568,6 +597,10 @@ async def edit_prx_name_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def edit_prx_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_name = update.message.text.strip().upper()
+    if new_name in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     old_name = context.user_data.get('old_prx_name')
     
     conn = sqlite3.connect(DB_FILE)
@@ -588,8 +621,13 @@ async def edit_prx_price_start(update: Update, context: ContextTypes.DEFAULT_TYP
     return EDIT_PRX_PRICE_STATE
 
 async def edit_prx_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     try:
-        new_price = float(update.message.text.strip())
+        new_price = float(text)
         prx_name = context.user_data.get('edit_prx_price_target')
         
         conn = sqlite3.connect(DB_FILE)
@@ -645,7 +683,12 @@ async def set_bkash_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SET_BKASH
 
 async def set_bkash_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    set_setting("BKASH", update.message.text.strip())
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    set_setting("BKASH", text)
     await update.message.reply_text("✅ BKASH NUMBER UPDATED!", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
@@ -655,7 +698,12 @@ async def set_nagad_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SET_NAGAD
 
 async def set_nagad_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    set_setting("NAGAD", update.message.text.strip())
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    set_setting("NAGAD", text)
     await update.message.reply_text("✅ NAGAD NUMBER UPDATED!", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
@@ -665,7 +713,12 @@ async def set_binance_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SET_BINANCE
 
 async def set_binance_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    set_setting("BINANCE", update.message.text.strip())
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    set_setting("BINANCE", text)
     await update.message.reply_text("✅ BINANCE PAY ID UPDATED!", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
@@ -675,7 +728,12 @@ async def set_bep20_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SET_BEP20
 
 async def set_bep20_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    set_setting("BEP20", update.message.text.strip())
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    set_setting("BEP20", text)
     await update.message.reply_text("✅ BEP20 ADDRESS UPDATED!", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
@@ -685,7 +743,12 @@ async def set_trc20_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SET_TRC20
 
 async def set_trc20_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    set_setting("TRC20", update.message.text.strip())
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    set_setting("TRC20", text)
     await update.message.reply_text("✅ TRC20 ADDRESS UPDATED!", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
@@ -862,8 +925,13 @@ async def vpn_qty_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await finalize_vpn_order(update, context, qty, query)
 
 async def vpn_custom_qty_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     try:
-        qty = int(update.message.text.strip())
+        qty = int(text)
         return await finalize_vpn_order(update, context, qty)
     except ValueError:
         await update.message.reply_text("❌ INVALID NUMBER!")
@@ -903,8 +971,13 @@ async def start_admin_deliver(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ADMIN_VPN_DELIVER
 
 async def admin_deliver_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     target_uid = context.user_data.get('deliver_target_uid')
-    details = update.message.text
+    details = text
     
     try:
         await context.bot.send_message(target_uid, f"🎁 YOUR VPN ORDER DELIVERED!\n\n{details}")
@@ -920,13 +993,23 @@ async def start_add_vpn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_VPN_NAME
 
 async def add_vpn_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['stk_vpn_name'] = update.message.text.strip().upper()
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
+    context.user_data['stk_vpn_name'] = text.upper()
     await update.message.reply_text("📅 ENTER DAYS (E.G. 3, 7, 14, 30):")
     return ADD_VPN_DAYS
 
 async def add_vpn_days_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     try:
-        context.user_data['stk_vpn_days'] = int(update.message.text.strip())
+        context.user_data['stk_vpn_days'] = int(text)
         await update.message.reply_text("💵 ENTER PRICE (BDT):")
         return ADD_VPN_PRICE
     except ValueError:
@@ -934,8 +1017,13 @@ async def add_vpn_days_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_VPN_DAYS
 
 async def add_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ["🛡️ BUY VPN", "🌐 BUY PROXY", "💳 DEPOSIT", "💰 BALANCE", "🔗 REFERRAL", "👑 ADMIN PANEL"]:
+        await handle_buttons(update, context)
+        return ConversationHandler.END
+
     try:
-        price = float(update.message.text.strip())
+        price = float(text)
         name = context.user_data.get('stk_vpn_name')
         days = context.user_data.get('stk_vpn_days')
         
@@ -967,7 +1055,10 @@ def main():
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
 
-    fallback_buttons = [MessageHandler(filters.Regex("^(🛡️ BUY VPN|🌐 BUY PROXY|💳 DEPOSIT|💰 BALANCE|🔗 REFERRAL|👑 ADMIN PANEL)$"), cancel_conversation)]
+    fallback_buttons = [
+        MessageHandler(filters.Regex("^(🛡️ BUY VPN|🌐 BUY PROXY|💳 DEPOSIT|💰 BALANCE|🔗 REFERRAL|👑 ADMIN PANEL)$"), cancel_conversation),
+        CommandHandler("cancel", cancel_conversation)
+    ]
     
     # CONVERSATIONS
     dep_conv = ConversationHandler(
@@ -1120,4 +1211,4 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
-    main()  
+    main()
