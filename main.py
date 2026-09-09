@@ -23,7 +23,7 @@ def run_dummy_server():
 
 logging.basicConfig(level=logging.INFO)
 
-# Updated Bot Token
+# Updated Bot Token & Admin ID
 TOKEN = "8736488112:AAFogh_wtKrmJfKAOrexqJV-kWI5AkId8O8"
 ADMIN_ID = 7753794493
 DB_FILE = "bot_data.db"
@@ -161,8 +161,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_ref_bal = get_user_balance(rewarded_referrer)
             await context.bot.send_message(
                 rewarded_referrer, 
-                f"🎉 **NEW REFERRAL JOINED!**\n\nSomeone joined using your referral link!\n💰 Added Bonus: `{REFERRAL_BONUS}` BDT\n📊 Total Balance: `{new_ref_bal}` BDT",
-                parse_mode="Markdown"
+                f"🎉 <b>NEW REFERRAL JOINED!</b>\n\nSomeone joined using your referral link!\n💰 Added Bonus: <code>{REFERRAL_BONUS}</code> BDT\n📊 Total Balance: <code>{new_ref_bal}</code> BDT",
+                parse_mode="HTML"
             )
         except Exception:
             pass
@@ -172,11 +172,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_msg = (
         f"🎉 WELCOME TO — ͟͞͞💗𝗡𝗘𝗫𝗢𝗥𝗔 𝗦𝗧𝗢𝗥𝗘 🎉\n\n"
         f"👤 NAME: {user.first_name.upper()}\n"
-        f"🆔 USER ID: `{user.id}`\n"
-        f"💰 YOUR BALANCE: `{user_bal}` BDT\n\n"
+        f"🆔 USER ID: <code>{user.id}</code>\n"
+        f"💰 YOUR BALANCE: <code>{user_bal}</code> BDT\n\n"
         f"PLEASE CHOOSE AN OPTION FROM THE MENU BELOW:"
     )
-    await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+    await update.message.reply_text(welcome_msg, parse_mode="HTML", reply_markup=get_main_keyboard(user.id))
     return ConversationHandler.END
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -191,15 +191,15 @@ async def show_referral_info(update: Update, context: ContextTypes.DEFAULT_TYPE)
     total_earned = ref_count * REFERRAL_BONUS
     
     text = (
-        f"🔗 **YOUR REFERRAL DASHBOARD**\n\n"
-        f"🎁 **REWARD:** `{REFERRAL_BONUS}` BDT per valid referral\n"
-        f"👥 **TOTAL REFERRED:** `{ref_count}` Users\n"
-        f"💰 **TOTAL EARNED:** `{total_earned}` BDT\n\n"
-        f"📌 **YOUR UNIQUE REFERRAL LINK:**\n"
-        f"`{ref_link}`\n\n"
+        f"🔗 <b>YOUR REFERRAL DASHBOARD</b>\n\n"
+        f"🎁 <b>REWARD:</b> <code>{REFERRAL_BONUS}</code> BDT per valid referral\n"
+        f"👥 <b>TOTAL REFERRED:</b> <code>{ref_count}</code> Users\n"
+        f"💰 <b>TOTAL EARNED:</b> <code>{total_earned}</code> BDT\n\n"
+        f"📌 <b>YOUR UNIQUE REFERRAL LINK:</b>\n"
+        f"<code>{ref_link}</code>\n\n"
         f"💡 Share this link with your friends to earn automatic balance!"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 # --- ADMIN PANEL ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -226,19 +226,19 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     admin_text = (
-        f"👑 **ADMIN DASHBOARD**\n\n"
-        f"👥 TOTAL USERS: `{total_users}`\n\n"
-        f"📊 **PROXY STATS:**\n"
-        f"📦 TOTAL UPLOADED: `{total_proxy}` PCS\n"
-        f"✅ AVAILABLE: `{proxy_avail}` PCS\n"
-        f"🛒 SOLD OUT: `{proxy_sold}` PCS"
+        f"👑 <b>ADMIN DASHBOARD</b>\n\n"
+        f"👥 TOTAL USERS: <code>{total_users}</code>\n\n"
+        f"📊 <b>PROXY STATS:</b>\n"
+        f"📦 TOTAL UPLOADED: <code>{total_proxy}</code> PCS\n"
+        f"✅ AVAILABLE: <code>{proxy_avail}</code> PCS\n"
+        f"🛒 SOLD OUT: <code>{proxy_sold}</code> PCS"
     )
     
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(admin_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        await update.callback_query.edit_message_text(admin_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
     else:
-        await update.message.reply_text(admin_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        await update.message.reply_text(admin_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
     return ConversationHandler.END
 
 # --- PROXY STOCK MANAGEMENT ---
@@ -252,10 +252,10 @@ async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE)
     categories = cursor.fetchall()
 
     kb = []
-    text_info = "⚙️ **PROXY STOCK MANAGEMENT PANEL**\n\n"
+    text_info = "⚙️ <b>PROXY STOCK MANAGEMENT PANEL</b>\n\n"
     
     if categories:
-        text_info += "📋 **CATEGORY STATS:**\n"
+        text_info += "📋 <b>CATEGORY STATS:</b>\n"
         for (cat_name, price) in categories:
             cursor.execute('SELECT COUNT(*) FROM proxy_products WHERE category = ? AND status = "AVAILABLE"', (cat_name,))
             avail = cursor.fetchone()[0]
@@ -263,7 +263,7 @@ async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE)
             sold = cursor.fetchone()[0]
             total = avail + sold
             
-            text_info += f"• **{cat_name.upper()}**: Total `{total}` | Available `{avail}` | Sold `{sold}`\n"
+            text_info += f"• <b>{cat_name.upper()}</b>: Total <code>{total}</code> | Available <code>{avail}</code> | Sold <code>{sold}</code>\n"
             kb.append([
                 InlineKeyboardButton(f"🌐 {cat_name.upper()} ({avail} Avail)", callback_data=f"infoprx_{cat_name}"),
                 InlineKeyboardButton("✏️ EDIT", callback_data=f"editprx_menu_{cat_name}")
@@ -275,7 +275,7 @@ async def manage_proxy_stock(update: Update, context: ContextTypes.DEFAULT_TYPE)
     kb.append([InlineKeyboardButton("➕ ADD BULK PROXY STOCK", callback_data="admin_add_proxy")])
     kb.append([InlineKeyboardButton("⬅️ Back", callback_data="admin_panel_back")])
     
-    await query.edit_message_text(text_info, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    await query.edit_message_text(text_info, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
 async def start_add_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -302,13 +302,13 @@ async def add_proxy_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         context.user_data['stk_prx_price'] = float(text)
         msg = (
-            "🚀 **PASTE BULK PROXIES NOW!**\n\n"
-            "একসাথে যত খুশি প্রক্সি পেস্ট করে পাঠিয়ে দিন।\n\n"
-            "📌 **SUPPORTED FORMATS:**\n"
-            "`IP:PORT:USERNAME:PASSWORD`\n"
-            "`IP:PORT`"
+            "🚀 <b>PASTE BULK PROXIES NOW!</b>\n\n"
+            "একসাথে যত খুশি প্রক্সি পেস্ট করে বানিয়ে দিন।\n\n"
+            "📌 <b>SUPPORTED FORMATS:</b>\n"
+            "<code>IP:PORT:USERNAME:PASSWORD</code>\n"
+            "<code>IP:PORT</code>"
         )
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await update.message.reply_text(msg, parse_mode="HTML")
         return ADD_PROXY_ITEMS
     except ValueError:
         await update.message.reply_text("❌ INVALID PRICE! Please enter a number (e.g. 15 or 20):")
@@ -360,13 +360,13 @@ async def add_proxy_items_rec(update: Update, context: ContextTypes.DEFAULT_TYPE
     conn.close()
     
     result_text = (
-        f"✅ **BULK PROXY IMPORTED SUCCESSFULLY!**\n\n"
-        f"📦 CATEGORY: `{name}`\n"
-        f"💵 PRICE: `{price}` BDT\n"
-        f"➕ ADDED: `{added_count}` PCS\n"
-        f"⚠️ DUPLICATE/SKIPPED: `{skipped_count}` PCS"
+        f"✅ <b>BULK PROXY IMPORTED SUCCESSFULLY!</b>\n\n"
+        f"📦 CATEGORY: <code>{name}</code>\n"
+        f"💵 PRICE: <code>{price}</code> BDT\n"
+        f"➕ ADDED: <code>{added_count}</code> PCS\n"
+        f"⚠️ DUPLICATE/SKIPPED: <code>{skipped_count}</code> PCS"
     )
-    await update.message.reply_text(result_text, parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+    await update.message.reply_text(result_text, parse_mode="HTML", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
 # --- BUY PROXY STORE & QUANTITY FLOW ---
@@ -418,8 +418,8 @@ async def select_proxy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⬅️ Back", callback_data="proxy_main_back")]
     ]
     
-    text = f"🌐 **Proxy ~ {cat.upper()}**\n\n❓ **কয়টি নিতে চান?**"
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    text = f"🌐 <b>Proxy ~ {cat.upper()}</b>\n\n❓ <b>কয়টি নিতে চান?</b>"
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
 async def proxy_qty_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -427,7 +427,7 @@ async def proxy_qty_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data.split("_")[1]
     
     if data == "custom":
-        await query.edit_message_text("📝 **কত পিস প্রক্সি কিনতে চান? সংখ্যাটি লিখুন:**", parse_mode="Markdown")
+        await query.edit_message_text("📝 <b>কত পিস প্রক্সি কিনতে চান? সংখ্যাটি লিখুন:</b>", parse_mode="HTML")
         return PRX_QTY_CUSTOM
     else:
         qty = int(data)
@@ -461,34 +461,37 @@ async def finalize_proxy_order(update, context, qty, query=None):
     rows = cursor.fetchall()
     
     if len(rows) < qty:
-        msg = f"❌ **পর্যাপ্ত স্টক নেই!**\n\nউপলব্ধ প্রক্সি: `{len(rows)}` পিস\nআপনি চেয়েছেন: `{qty}` পিস"
+        msg = f"❌ <b>পর্যাপ্ত স্টক নেই!</b>\n\nউপলব্ধ প্রক্সি: <code>{len(rows)}</code> পিস\nআপনি চেয়েছেন: <code>{qty}</code> পিস"
         conn.close()
-        if query: await query.edit_message_text(msg, parse_mode="Markdown")
-        else: await update.message.reply_text(msg, parse_mode="Markdown")
+        if query: await query.edit_message_text(msg, parse_mode="HTML")
+        else: await update.message.reply_text(msg, parse_mode="HTML")
         return ConversationHandler.END
 
     bal = get_user_balance(user.id)
     if bal < total_cost:
-        msg = f"❌ **পর্যাপ্ত ব্যালেন্স নেই!**\n\nমোট খরচ: `{total_cost}` BDT\nআপনার ব্যালেন্স: `{bal}` BDT"
+        msg = f"❌ <b>পর্যাপ্ত ব্যালেন্স নেই!</b>\n\nমোট খরচ: <code>{total_cost}</code> BDT\nআপনার ব্যালেন্স: <code>{bal}</code> BDT"
         conn.close()
-        if query: await query.edit_message_text(msg, parse_mode="Markdown")
-        else: await update.message.reply_text(msg, parse_mode="Markdown")
+        if query: await query.edit_message_text(msg, parse_mode="HTML")
+        else: await update.message.reply_text(msg, parse_mode="HTML")
         return ConversationHandler.END
 
     update_user_balance(user.id, -total_cost)
 
-    # UPDATED PROXY DELIVERY FORMAT
+    # EXACT FORMAT FOR SEPARATE COPY VALUE
     delivered_blocks = []
     for idx, (pid, ip, port, uname, pwd) in enumerate(rows, 1):
         cursor.execute('UPDATE proxy_products SET status = "SOLD" WHERE id = ?', (pid,))
         cursor.execute('INSERT INTO sales_history (item_type, name, price) VALUES ("PROXY", ?, ?)', (cat, price_per))
         
+        u_str = uname if uname else "N/A"
+        p_str = pwd if pwd else "N/A"
+
         block = (
-            f"**{idx}.**\n"
-            f"`IP:{ip}`\n"
-            f"`PORT:{port}`\n"
-            f"`USERNAME:{uname if uname else 'N/A'}`\n"
-            f"`PASSWORD:{pwd if pwd else 'N/A'}`"
+            f"<b>{idx}.</b>\n"
+            f"IP: <code>{ip}</code>\n"
+            f"PORT: <code>{port}</code>\n"
+            f"USERNAME: <code>{u_str}</code>\n"
+            f"PASSWORD: <code>{p_str}</code>"
         )
         delivered_blocks.append(block)
 
@@ -497,16 +500,17 @@ async def finalize_proxy_order(update, context, qty, query=None):
 
     items_formatted = "\n\n".join(delivered_blocks)
     deliv_msg = (
-        f"🌐 **{cat.upper()} DELIVERY SUCCESSFUL**\n\n"
-        f"💵 **PRICE:** `{total_cost}` BDT\n\n"
+        f"🌐 <b>{cat.upper()} DELIVERY SUCCESSFUL</b>\n\n"
+        f"💵 <b>PRICE: {total_cost} BDT</b>\n\n"
         f"{items_formatted}\n\n"
-        f"⚠️ **CLICK ON COPY YOUR PRODUCTS THANKS FOR BUYING**"
+        f"⚠️ <b>CLICK ON COPY YOUR PRODUCTS</b>\n"
+        f"<b>THANKS FOR BUYING</b>"
     )
 
     if query: 
-        await query.edit_message_text(deliv_msg, parse_mode="Markdown")
+        await query.edit_message_text(deliv_msg, parse_mode="HTML")
     else: 
-        await update.message.reply_text(deliv_msg, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+        await update.message.reply_text(deliv_msg, parse_mode="HTML", reply_markup=get_main_keyboard(user.id))
     
     return ConversationHandler.END
 
@@ -583,7 +587,7 @@ async def edit_vpn_name_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     vpn_name = query.data.split("_")[2]
     context.user_data['old_vpn_name'] = vpn_name
-    await query.edit_message_text(f"✏️ ENTER NEW NAME FOR `{vpn_name}`:", parse_mode="Markdown")
+    await query.edit_message_text(f"✏️ ENTER NEW NAME FOR <code>{vpn_name}</code>:", parse_mode="HTML")
     return EDIT_VPN_NAME_STATE
 
 async def edit_vpn_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -600,7 +604,7 @@ async def edit_vpn_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
     
-    await update.message.reply_text(f"✅ VPN NAME CHANGED FROM `{old_name}` TO `{new_name}`!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+    await update.message.reply_text(f"✅ VPN NAME CHANGED FROM <code>{old_name}</code> TO <code>{new_name}</code>!", parse_mode="HTML", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
 async def edit_vpn_price_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -608,7 +612,7 @@ async def edit_vpn_price_start(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     vpn_name = query.data.split("_")[2]
     context.user_data['edit_vpn_price_target'] = vpn_name
-    await query.edit_message_text(f"💵 ENTER NEW PRICE FOR `{vpn_name}` (BDT):", parse_mode="Markdown")
+    await query.edit_message_text(f"💵 ENTER NEW PRICE FOR <code>{vpn_name}</code> (BDT):", parse_mode="HTML")
     return EDIT_VPN_PRICE_STATE
 
 async def edit_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -627,7 +631,7 @@ async def edit_vpn_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE)
         conn.commit()
         conn.close()
         
-        await update.message.reply_text(f"✅ VPN `{vpn_name}` PRICE UPDATED TO `{new_price}` BDT!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+        await update.message.reply_text(f"✅ VPN <code>{vpn_name}</code> PRICE UPDATED TO <code>{new_price}</code> BDT!", parse_mode="HTML", reply_markup=get_main_keyboard(ADMIN_ID))
         return ConversationHandler.END
     except ValueError:
         await update.message.reply_text("❌ INVALID PRICE!")
@@ -644,7 +648,7 @@ async def delete_vpn_product(update: Update, context: ContextTypes.DEFAULT_TYPE)
     conn.commit()
     conn.close()
     
-    await query.edit_message_text(f"🗑️ VPN `{vpn_name}` DELETED SUCCESSFULLY!", parse_mode="Markdown")
+    await query.edit_message_text(f"🗑️ VPN <code>{vpn_name}</code> DELETED SUCCESSFULLY!", parse_mode="HTML")
 
 # --- PROXY EDIT MANAGEMENT ---
 async def prx_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -665,7 +669,7 @@ async def edit_prx_name_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     prx_name = query.data.split("_")[2]
     context.user_data['old_prx_name'] = prx_name
-    await query.edit_message_text(f"✏️ ENTER NEW NAME FOR `{prx_name}`:", parse_mode="Markdown")
+    await query.edit_message_text(f"✏️ ENTER NEW NAME FOR <code>{prx_name}</code>:", parse_mode="HTML")
     return EDIT_PRX_NAME_STATE
 
 async def edit_prx_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -682,7 +686,7 @@ async def edit_prx_name_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
     
-    await update.message.reply_text(f"✅ PROXY NAME CHANGED FROM `{old_name}` TO `{new_name}`!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+    await update.message.reply_text(f"✅ PROXY NAME CHANGED FROM <code>{old_name}</code> TO <code>{new_name}</code>!", parse_mode="HTML", reply_markup=get_main_keyboard(ADMIN_ID))
     return ConversationHandler.END
 
 async def edit_prx_price_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -690,7 +694,7 @@ async def edit_prx_price_start(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     prx_name = query.data.split("_")[2]
     context.user_data['edit_prx_price_target'] = prx_name
-    await query.edit_message_text(f"💵 ENTER NEW PRICE FOR `{prx_name}` (BDT):", parse_mode="Markdown")
+    await query.edit_message_text(f"💵 ENTER NEW PRICE FOR <code>{prx_name}</code> (BDT):", parse_mode="HTML")
     return EDIT_PRX_PRICE_STATE
 
 async def edit_prx_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -709,7 +713,7 @@ async def edit_prx_price_rec(update: Update, context: ContextTypes.DEFAULT_TYPE)
         conn.commit()
         conn.close()
         
-        await update.message.reply_text(f"✅ PROXY `{prx_name}` PRICE UPDATED TO `{new_price}` BDT!", parse_mode="Markdown", reply_markup=get_main_keyboard(ADMIN_ID))
+        await update.message.reply_text(f"✅ PROXY <code>{prx_name}</code> PRICE UPDATED TO <code>{new_price}</code> BDT!", parse_mode="HTML", reply_markup=get_main_keyboard(ADMIN_ID))
         return ConversationHandler.END
     except ValueError:
         await update.message.reply_text("❌ INVALID PRICE!")
@@ -726,7 +730,7 @@ async def delete_prx_product(update: Update, context: ContextTypes.DEFAULT_TYPE)
     conn.commit()
     conn.close()
     
-    await query.edit_message_text(f"🗑️ PROXY `{prx_name}` DELETED SUCCESSFULLY!", parse_mode="Markdown")
+    await query.edit_message_text(f"🗑️ PROXY <code>{prx_name}</code> DELETED SUCCESSFULLY!", parse_mode="HTML")
 
 # --- SETTINGS MENU ---
 async def admin_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -735,11 +739,11 @@ async def admin_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     text = (
         f"⚙️ BOT SETTINGS & ADDRESSES:\n\n"
-        f"💗 BKASH: `{get_setting('BKASH')}`\n"
-        f"🧡 NAGAD: `{get_setting('NAGAD')}`\n"
-        f"🟡 BINANCE ID: `{get_setting('BINANCE')}`\n"
-        f"🌐 BEP20: `{get_setting('BEP20')}`\n"
-        f"🌐 TRC20: `{get_setting('TRC20')}`"
+        f"💗 BKASH: <code>{get_setting('BKASH')}</code>\n"
+        f"🧡 NAGAD: <code>{get_setting('NAGAD')}</code>\n"
+        f"🟡 BINANCE ID: <code>{get_setting('BINANCE')}</code>\n"
+        f"🌐 BEP20: <code>{get_setting('BEP20')}</code>\n"
+        f"🌐 TRC20: <code>{get_setting('TRC20')}</code>"
     )
     
     kb = [
@@ -748,7 +752,7 @@ async def admin_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("EDIT BEP20 ADDRESS", callback_data="set_bep20"), InlineKeyboardButton("EDIT TRC20 ADDRESS", callback_data="set_trc20")],
         [InlineKeyboardButton("⬅️ Back", callback_data="admin_panel_back")]
     ]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
 async def set_bkash_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
@@ -834,9 +838,9 @@ async def deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.message.reply_text("💳 **SELECT DEPOSIT METHOD:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        await update.callback_query.message.reply_text("💳 <b>SELECT DEPOSIT METHOD:</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
     else:
-        await update.message.reply_text("💳 **SELECT DEPOSIT METHOD:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        await update.message.reply_text("💳 <b>SELECT DEPOSIT METHOD:</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
     return WAITING_AMOUNT
 
 async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -847,11 +851,11 @@ async def dep_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     num = get_setting(method)
     text = (
-        f"✅ **METHOD:** {method}\n"
-        f"📞 **SEND TO ({'ID' if method=='BINANCE' else 'NUMBER'}):** `{num}`\n\n"
-        f"💳 **ENTER DEPOSIT AMOUNT (BDT):**"
+        f"✅ <b>METHOD:</b> {method}\n"
+        f"📞 <b>SEND TO ({'ID' if method=='BINANCE' else 'NUMBER'}):</b> <code>{num}</code>\n\n"
+        f"💳 <b>ENTER DEPOSIT AMOUNT (BDT):</b>"
     )
-    await query.edit_message_text(text, parse_mode="Markdown")
+    await query.edit_message_text(text, parse_mode="HTML")
     return WAITING_AMOUNT
 
 async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -870,18 +874,18 @@ async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         warn_text = ""
         if method == "BINANCE":
             usdt_amt = amount / 125.0
-            warn_text = f"\n⚠️ **WARNING:** PLEASE SEND EXACTLY `{usdt_amt:.2f}` USDT"
+            warn_text = f"\n⚠️ <b>WARNING:</b> PLEASE SEND EXACTLY <code>{usdt_amt:.2f}</code> USDT"
 
         text_summary = (
-            f"📩 **DEPOSIT SUMMARY**\n\n"
-            f"🔹 **METHOD:** {method}\n"
-            f"💵 **AMOUNT:** {amount} BDT\n"
-            f"📱 **ADDRESS/NO:** {num}{warn_text}\n\n"
-            f"👇 **CLICK CONFIRM PAYMENT AFTER SENDING.**"
+            f"📩 <b>DEPOSIT SUMMARY</b>\n\n"
+            f"🔹 <b>METHOD:</b> {method}\n"
+            f"💵 <b>AMOUNT:</b> {amount} BDT\n"
+            f"📱 <b>ADDRESS/NO:</b> {num}{warn_text}\n\n"
+            f"👇 <b>CLICK CONFIRM PAYMENT AFTER SENDING.</b>"
         )
         
         kb = [[InlineKeyboardButton("✅ CONFIRM PAYMENT", callback_data="dep_confirm")]]
-        await update.message.reply_text(text_summary, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        await update.message.reply_text(text_summary, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
         return WAITING_DEP_PROOF
     except ValueError:
         await update.message.reply_text("❌ PLEASE ENTER A VALID NUMBER!")
@@ -890,7 +894,7 @@ async def dep_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def dep_confirm_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("📸 **PLEASE SEND THE PAYMENT SCREENSHOT NOW:**", parse_mode="Markdown")
+    await query.edit_message_text("📸 <b>PLEASE SEND THE PAYMENT SCREENSHOT NOW:</b>", parse_mode="HTML")
     return WAITING_DEP_PROOF
 
 async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -901,19 +905,19 @@ async def dep_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     final_text = (
         f"DEPOSIT REQUEST CREATE ✅\n\n"
-        f"🔹 **METHOD:** {method}\n"
-        f"💵 **AMOUNT:** {amount} BDT\n\n"
-        f"⚡ **WAIT FOR 2-5 MINUTE ADMIN VERIFY** ⚡"
+        f"🔹 <b>METHOD:</b> {method}\n"
+        f"💵 <b>AMOUNT:</b> {amount} BDT\n\n"
+        f"⚡ <b>WAIT FOR 2-5 MINUTE ADMIN VERIFY</b> ⚡"
     )
     
-    await update.message.reply_text(final_text, parse_mode="Markdown", reply_markup=get_main_keyboard(user.id))
+    await update.message.reply_text(final_text, parse_mode="HTML", reply_markup=get_main_keyboard(user.id))
     
     admin_kb = [[InlineKeyboardButton("✅ APPROVE", callback_data=f"depapp_app_{user.id}_{amount}"), InlineKeyboardButton("❌ REJECT", callback_data=f"depapp_rej_{user.id}_{amount}")]]
     await context.bot.send_photo(
         ADMIN_ID, 
         photo, 
-        caption=f"📥 **NEW DEPOSIT REQUEST**\n\n👤 USER: {user.full_name.upper()} (`{user.id}`)\n💳 METHOD: {method}\n💰 AMOUNT: `{amount}` BDT", 
-        parse_mode="Markdown",
+        caption=f"📥 <b>NEW DEPOSIT REQUEST</b>\n\n👤 USER: {user.full_name.upper()} (<code>{user.id}</code>)\n💳 METHOD: {method}\n💰 AMOUNT: <code>{amount}</code> BDT", 
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(admin_kb)
     )
     return ConversationHandler.END
@@ -926,7 +930,7 @@ async def dep_approval_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if act == "app":
         new_bal = update_user_balance(uid, amt)
         await query.edit_message_caption(caption=f"{query.message.caption}\n\n✅ APPROVED")
-        await context.bot.send_message(uid, f"🎉 DEPOSIT APPROVED!\nADDED: `{amt}` BDT\nBALANCE: `{new_bal}` BDT", parse_mode="Markdown")
+        await context.bot.send_message(uid, f"🎉 DEPOSIT APPROVED!\nADDED: <code>{amt}</code> BDT\nBALANCE: <code>{new_bal}</code> BDT", parse_mode="HTML")
     else:
         await query.edit_message_caption(caption=f"{query.message.caption}\n\n❌ REJECTED")
         await context.bot.send_message(uid, "❌ DEPOSIT REJECTED!")
@@ -1019,9 +1023,9 @@ async def finalize_vpn_order(update, context, qty, query=None):
     
     bal = get_user_balance(user.id)
     if bal < total_cost:
-        msg = f"❌ INSUFFICIENT BALANCE!\nTOTAL: `{total_cost}` BDT\nBALANCE: `{bal}` BDT"
-        if query: await query.edit_message_text(msg, parse_mode="Markdown")
-        else: await update.message.reply_text(msg, parse_mode="Markdown")
+        msg = f"❌ INSUFFICIENT BALANCE!\nTOTAL: <code>{total_cost}</code> BDT\nBALANCE: <code>{bal}</code> BDT"
+        if query: await query.edit_message_text(msg, parse_mode="HTML")
+        else: await update.message.reply_text(msg, parse_mode="HTML")
         return ConversationHandler.END
         
     update_user_balance(user.id, -total_cost)
@@ -1030,9 +1034,9 @@ async def finalize_vpn_order(update, context, qty, query=None):
     if query: await query.edit_message_text(user_msg)
     else: await update.message.reply_text(user_msg, reply_markup=get_main_keyboard(user.id))
     
-    admin_req = f"🔔 NEW VPN ORDER\n\n👤 USER: {user.full_name.upper()} (`{user.id}`)\n📦 VPN: {name.upper()}\n📅 DAYS: {days}\n🔢 QTY: {qty}\n💰 TOTAL COST: `{total_cost}` BDT"
+    admin_req = f"🔔 NEW VPN ORDER\n\n👤 USER: {user.full_name.upper()} (<code>{user.id}</code>)\n📦 VPN: {name.upper()}\n📅 DAYS: {days}\n🔢 QTY: {qty}\n💰 TOTAL COST: <code>{total_cost}</code> BDT"
     kb = [[InlineKeyboardButton("🚀 DELIVER PRODUCT", callback_data=f"delivvpn_{user.id}")]]
-    await context.bot.send_message(ADMIN_ID, admin_req, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    await context.bot.send_message(ADMIN_ID, admin_req, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
     return ConversationHandler.END
 
 async def start_admin_deliver(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1040,7 +1044,7 @@ async def start_admin_deliver(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     target_uid = query.data.split("_")[1]
     context.user_data['deliver_target_uid'] = target_uid
-    await query.edit_message_text(f"🚀 SEND PRODUCT DETAILS FOR USER `{target_uid}`:", parse_mode="Markdown")
+    await query.edit_message_text(f"🚀 SEND PRODUCT DETAILS FOR USER <code>{target_uid}</code>:", parse_mode="HTML")
     return ADMIN_VPN_DELIVER
 
 async def admin_deliver_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1117,7 +1121,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if text == "💳 DEPOSIT": await deposit_start(update, context)
-    elif text == "💰 BALANCE": await update.message.reply_text(f"📊 YOUR BALANCE: `{get_user_balance(user_id)}` BDT", parse_mode="Markdown")
+    elif text == "💰 BALANCE": await update.message.reply_text(f"📊 YOUR BALANCE: <code>{get_user_balance(user_id)}</code> BDT", parse_mode="HTML")
     elif text == "🔗 REFERRAL": await show_referral_info(update, context)
     elif text == "🛡️ BUY VPN": await start_vpn_flow(update, context)
     elif text == "🌐 BUY PROXY": await show_proxy_store(update, context)
