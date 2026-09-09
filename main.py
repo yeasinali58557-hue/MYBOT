@@ -412,7 +412,7 @@ async def select_proxy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     kb = [
         [InlineKeyboardButton("1️⃣ 1 pcs", callback_data="prxqty_1"), InlineKeyboardButton("3️⃣ 3 pcs", callback_data="prxqty_3")],
-        [InlineKeyboardButton("5️⃣ 5 pcs", callback_data="prxqty_10"), InlineKeyboardButton("🔟 10 pcs", callback_data="prxqty_10")],
+        [InlineKeyboardButton("5️⃣ 5 pcs", callback_data="prxqty_5"), InlineKeyboardButton("🔟 10 pcs", callback_data="prxqty_10")],
         [InlineKeyboardButton("📝 Enter Quantity", callback_data="prxqty_custom")],
         [InlineKeyboardButton("⬅️ Back", callback_data="proxy_main_back")]
     ]
